@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPS Tracker — Device Simulator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#0c0c14;--surface:#13131e;--surface2:#1a1a28;--border:#252538;--yellow:#f5c518;--yellow-dim:#f5c51822;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--orange:#f97316;--text:#e4e4e7;--dim:#71717a;--muted:#3f3f50}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+
+  .loading-screen{display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);flex-direction:column;gap:16px}
+  .loading-screen .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--yellow);border-radius:50%;animation:spin 0.8s linear infinite}
+  .loading-screen p{color:var(--dim);font-size:13px;font-family:'JetBrains Mono',monospace}
+  .loading-screen.hidden{display:none}
+  .loading-screen .error{color:var(--red);display:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .layout{display:grid;grid-template-columns:380px 1fr;grid-template-rows:56px 1fr;height:100vh}
+  .layout.hidden{display:none}
+  .header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .header-left{display:flex;align-items:center;gap:10px}
+  .header .badge{background:var(--yellow-dim);border:1px solid var(--yellow);color:var(--yellow);padding:2px 10px;border-radius:6px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px}
+  .header h1{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600}
+  .header h1 span{color:var(--dim);font-weight:400}
+  .panel{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+  .section-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-bottom:4px}
+  .sim-device{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;transition:border-color 0.2s}
+  .sim-device.active{border-color:var(--green)}
+  .sim-device-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .sim-device-name{display:flex;align-items:center;gap:8px}
+  .sim-device-name .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .sim-device.active .dot{background:var(--green);box-shadow:0 0 8px rgba(34,197,94,0.5);animation:blink 1.5s infinite}
+  @keyframes blink{50%{opacity:0.4}}
+  .sim-device-name strong{font-size:13px}
+  .sim-device-id{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);background:var(--surface2);padding:2px 6px;border-radius:4px}
+  .sim-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+  .sim-stat{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace}
+  .sim-stat .val{color:var(--text);font-weight:600}
+  .sim-controls{display:flex;gap:6px}
+  .btn-sm{flex:1;padding:7px 0;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all 0.15s}
+  .btn-sm:hover{border-color:var(--yellow);color:var(--yellow)}
+  .btn-sm.start{border-color:var(--green);color:var(--green)}.btn-sm.start:hover{background:rgba(34,197,94,0.1)}
+  .btn-sm.stop{border-color:var(--red);color:var(--red)}.btn-sm.stop:hover{background:rgba(239,68,68,0.1)}
+  .global-controls{display:flex;gap:8px}
+  .btn-main{flex:1;padding:10px;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+  .btn-main.go{background:var(--green);color:#000}.btn-main.go:hover{filter:brightness(1.15)}
+  .btn-main.halt{background:var(--red);color:#fff}.btn-main.halt:hover{filter:brightness(1.15)}
+  .btn-main.seed{background:var(--surface2);color:var(--text);border:1px solid var(--border)}.btn-main.seed:hover{border-color:var(--yellow)}
+  .config-row{display:flex;align-items:center;justify-content:space-between;font-size:12px}
+  .config-row label{color:var(--dim)}
+  .config-row input,.config-row select{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-family:'JetBrains Mono',monospace;font-size:12px;width:100px;text-align:right}
+  .log-section{flex:1;min-height:0;display:flex;flex-direction:column}
+  .log{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.6;color:var(--dim)}
+  .log .ok{color:var(--green)}.log .err{color:var(--red)}.log .info{color:var(--blue)}.log .warn{color:var(--yellow)}
+  .map-area{position:relative}
+  #simMap{width:100%;height:100%}
+  .leaflet-control-zoom a{background:var(--surface)!important;color:var(--text)!important;border-color:var(--border)!important}
+  ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <p>Loading configuration...</p>
+  <p class="error" id="loadingError">Failed to load config. Check Vercel environment variables.</p>
+</div>
+
+<div class="layout hidden" id="mainLayout">
+  <div class="header">
+    <div class="header-left"><h1>Device Simulator <span>— GPS Tracker</span></h1></div>
+    <div class="badge">TEST MODE</div>
+  </div>
+  <div class="panel">
+    <div>
+      <div class="section-label">Configuration</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+        <div class="config-row"><label>Update interval</label><select id="cfgInterval"><option value="2000">2 sec</option><option value="5000" selected>5 sec</option><option value="10000">10 sec</option><option value="30000">30 sec</option></select></div>
+        <div class="config-row"><label>Speed (km/h)</label><input type="number" id="cfgSpeed" value="40" min="5" max="120" /></div>
+        <div class="config-row"><label>GPS jitter (m)</label><input type="number" id="cfgJitter" value="8" min="0" max="50" /></div>
+      </div>
+    </div>
+    <div>
+      <div class="section-label">Test Devices</div>
+      <div class="global-controls" style="margin:8px 0;">
+        <button class="btn-main seed" onclick="seedDevices()">Seed 5 Devices</button>
+        <button class="btn-main go" onclick="startAll()">Start All</button>
+        <button class="btn-main halt" onclick="stopAll()">Stop All</button>
+      </div>
+    </div>
+    <div id="deviceCards"></div>
+    <div class="log-section">
+      <div class="section-label">Activity Log</div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+  <div class="map-area"><div id="simMap"></div></div>
+</div>
+
+<script>
+var SUPABASE_URL = '';
+var SUPABASE_KEY = '';
+var DASHBOARD_KEY = '';
+var headers = {};
+
+var TEST_DEVICES = [
+  { device_id:'sim-lusaka-01', device_name:'Sales - Cairo Road', assigned_to:'Test User A', phone_number:'+260971000001', color:'#f5c518', route:[[-15.3890,28.3228],[-15.3920,28.3215],[-15.3950,28.3200],[-15.3980,28.3188],[-15.4010,28.3175],[-15.4040,28.3162],[-15.4070,28.3148],[-15.4100,28.3135],[-15.4130,28.3122],[-15.4160,28.3108],[-15.4190,28.3095],[-15.4220,28.3082],[-15.4250,28.3068],[-15.4280,28.3055],[-15.4310,28.3042],[-15.4340,28.3028],[-15.4370,28.3015],[-15.4400,28.3002]] },
+  { device_id:'sim-lusaka-02', device_name:'Delivery - Great East', assigned_to:'Test User B', phone_number:'+260971000002', color:'#22c55e', route:[[-15.4167,28.2833],[-15.4155,28.2900],[-15.4140,28.2970],[-15.4125,28.3040],[-15.4108,28.3110],[-15.4090,28.3180],[-15.4075,28.3250],[-15.4058,28.3320],[-15.4040,28.3390],[-15.4025,28.3460],[-15.4010,28.3530],[-15.3995,28.3600],[-15.3980,28.3670],[-15.3965,28.3740],[-15.3950,28.3810],[-15.3935,28.3880],[-15.3920,28.3950],[-15.3905,28.4020]] },
+  { device_id:'sim-lusaka-03', device_name:'Manager - Kabulonga', assigned_to:'Test User C', phone_number:'+260971000003', color:'#3b82f6', route:[[-15.4050,28.3200],[-15.4030,28.3240],[-15.4010,28.3280],[-15.3990,28.3320],[-15.3970,28.3360],[-15.3990,28.3400],[-15.4010,28.3440],[-15.4030,28.3400],[-15.4050,28.3360],[-15.4070,28.3320],[-15.4090,28.3280],[-15.4070,28.3240],[-15.4050,28.3200],[-15.4030,28.3240],[-15.4010,28.3280],[-15.3990,28.3320],[-15.3970,28.3360],[-15.3990,28.3400]] },
+  { device_id:'sim-lusaka-04', device_name:'Tech - Woodlands', assigned_to:'Test User D', phone_number:'+260971000004', color:'#a855f7', route:[[-15.4400,28.3000],[-15.4380,28.2960],[-15.4360,28.2920],[-15.4340,28.2880],[-15.4320,28.2840],[-15.4300,28.2800],[-15.4280,28.2760],[-15.4260,28.2720],[-15.4240,28.2680],[-15.4260,28.2640],[-15.4280,28.2600],[-15.4300,28.2640],[-15.4320,28.2680],[-15.4340,28.2720],[-15.4360,28.2760],[-15.4380,28.2800],[-15.4400,28.2840],[-15.4400,28.2900]] },
+  { device_id:'sim-lusaka-05', device_name:'Field - Chilenje', assigned_to:'Test User E', phone_number:'+260971000005', color:'#f97316', route:[[-15.4500,28.2750],[-15.4520,28.2790],[-15.4540,28.2830],[-15.4560,28.2870],[-15.4580,28.2910],[-15.4560,28.2950],[-15.4540,28.2990],[-15.4520,28.3030],[-15.4500,28.3070],[-15.4480,28.3030],[-15.4460,28.2990],[-15.4440,28.2950],[-15.4420,28.2910],[-15.4440,28.2870],[-15.4460,28.2830],[-15.4480,28.2790],[-15.4500,28.2750],[-15.4520,28.2790]] }
+];
+
+var deviceState = {};
+var simMap;
+var mapMarkers = {};
+var mapTrails = {};
+
+// ============================================================
+// BOOT
+// ============================================================
+(function boot() {
+  fetch('/api/config')
+    .then(function(r) { return r.json(); })
+    .then(function(cfg) {
+      if (!cfg.supabaseUrl || !cfg.supabaseKey) throw new Error('Missing config');
+      SUPABASE_URL = cfg.supabaseUrl;
+      SUPABASE_KEY = cfg.supabaseKey;
+      DASHBOARD_KEY = cfg.dashboardKey || '';
+      headers = {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-dashboard-key': DASHBOARD_KEY,
+        'Prefer': 'return=representation,resolution=ignore-duplicates'
+      };
+      document.getElementById('loadingScreen').classList.add('hidden');
+      document.getElementById('mainLayout').classList.remove('hidden');
+      initMap();
+      renderDeviceCards();
+      log('Ready. Click "Seed 5 Devices" first, then "Start All".', 'info');
+    })
+    .catch(function(e) {
+      console.error(e);
+      document.getElementById('loadingError').style.display = 'block';
+    });
+})();
+
+function initMap() {
+  simMap = L.map('simMap', { zoomControl: true, attributionControl: false }).setView([-15.42, 28.30], 13);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(simMap);
+  TEST_DEVICES.forEach(function(d) {
+    L.polyline(d.route, { color: d.color, weight: 1.5, opacity: 0.2, dashArray: '4 4' }).addTo(simMap);
+  });
+}
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var time = new Date().toLocaleTimeString();
+  el.innerHTML += '<div class="' + (cls || '') + '">[' + time + '] ' + msg + '</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function seedDevices() {
+  log('Seeding 5 test devices...', 'info');
+  var promises = TEST_DEVICES.map(function(d) {
+    return fetch(SUPABASE_URL + '/rest/v1/devices', {
+      method: 'POST', headers: headers,
+      body: JSON.stringify({ device_id: d.device_id, device_name: d.device_name, assigned_to: d.assigned_to, phone_number: d.phone_number })
+    }).then(function(res) {
+      if (res.ok) { log('&#10003; ' + d.device_name + ' (' + d.device_id + ')', 'ok'); }
+      else { return res.text().then(function(t) {
+        if (t.indexOf('duplicate') > -1 || t.indexOf('23505') > -1 || res.status === 409) { log('&#8635; Already exists: ' + d.device_name, 'warn'); }
+        else { log('&#10007; ' + d.device_name + ': ' + res.status, 'err'); }
+      }); }
+    }).catch(function(e) { log('&#10007; ' + d.device_name + ': ' + e.message, 'err'); });
+  });
+  Promise.all(promises).then(function() { log('Done. Open the dashboard to see them.', 'info'); renderDeviceCards(); });
+}
+
+function renderDeviceCards() {
+  document.getElementById('deviceCards').innerHTML = TEST_DEVICES.map(function(d) {
+    var st = deviceState[d.device_id] || {};
+    var active = st.running;
+    return '<div class="sim-device ' + (active ? 'active' : '') + '">' +
+      '<div class="sim-device-header"><div class="sim-device-name"><div class="dot" style="' + (active ? '' : 'background:' + d.color + '40') + '"></div><strong style="color:' + d.color + '">' + d.device_name + '</strong></div><span class="sim-device-id">' + d.device_id + '</span></div>' +
+      '<div class="sim-stats"><div class="sim-stat">Points: <span class="val">' + (st.pointsSent || 0) + '</span></div><div class="sim-stat">Step: <span class="val">' + (st.currentIndex || 0) + '/' + d.route.length + '</span></div><div class="sim-stat">Battery: <span class="val">' + (st.battery || 85) + '%</span></div><div class="sim-stat">Status: <span class="val" style="color:' + (active ? 'var(--green)' : 'var(--dim)') + '">' + (active ? 'SENDING' : 'IDLE') + '</span></div></div>' +
+      '<div class="sim-controls"><button class="btn-sm start" onclick="startDevice(\'' + d.device_id + '\')">&#9654; Start</button><button class="btn-sm stop" onclick="stopDevice(\'' + d.device_id + '\')">&#9632; Stop</button></div></div>';
+  }).join('');
+}
+
+function addJitter(lat, lng, m) {
+  var dLat = (Math.random() - 0.5) * 2 * m / 111320;
+  var dLng = (Math.random() - 0.5) * 2 * m / (111320 * Math.cos(lat * Math.PI / 180));
+  return [lat + dLat, lng + dLng];
+}
+
+function interpolate(p1, p2, t) { return [p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t]; }
+
+function sendLocation(device, lat, lng) {
+  var st = deviceState[device.device_id];
+  var speed = parseFloat(document.getElementById('cfgSpeed').value) / 3.6;
+  var accuracy = 5 + Math.random() * 15;
+  var point = { device_id: device.device_id, latitude: lat, longitude: lng, accuracy: accuracy, speed: speed + (Math.random() - 0.5) * 2, bearing: Math.random() * 360, altitude: 1200 + Math.random() * 20, battery_level: st.battery, network_type: accuracy < 15 ? 'gps' : 'network', recorded_at: new Date().toISOString() };
+  fetch(SUPABASE_URL + '/rest/v1/locations', { method: 'POST', headers: headers, body: JSON.stringify(point) })
+    .then(function(res) {
+      if (res.ok || res.status === 201) { st.pointsSent++; log('&#128205; ' + device.device_name + ': (' + lat.toFixed(5) + ', ' + lng.toFixed(5) + ') #' + st.pointsSent, 'ok'); }
+      else { log('&#10007; ' + device.device_name + ': HTTP ' + res.status, 'err'); }
+    })
+    .catch(function(e) { log('&#10007; ' + device.device_name + ': ' + e.message, 'err'); });
+  if (Math.random() < 0.15) st.battery = Math.max(5, st.battery - 1);
+  updateMapMarker(device, lat, lng);
+  renderDeviceCards();
+}
+
+function updateMapMarker(device, lat, lng) {
+  if (mapMarkers[device.device_id]) { mapMarkers[device.device_id].setLatLng([lat, lng]); }
+  else {
+    var icon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:' + device.color + ';border:2px solid #fff;box-shadow:0 0 10px ' + device.color + '80;"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
+    mapMarkers[device.device_id] = L.marker([lat, lng], { icon: icon }).addTo(simMap);
+  }
+  if (!mapTrails[device.device_id]) mapTrails[device.device_id] = L.polyline([], { color: device.color, weight: 2, opacity: 0.6 }).addTo(simMap);
+  mapTrails[device.device_id].addLatLng([lat, lng]);
+}
+
+function tick(device) {
+  var st = deviceState[device.device_id];
+  if (!st.running) return;
+  st.subStep += 0.3;
+  if (st.subStep >= 1) { st.subStep = 0; st.currentIndex++; if (st.currentIndex >= device.route.length - 1) { device.route.reverse(); st.currentIndex = 0; log('&#8635; ' + device.device_name + ': Route reversed', 'info'); } }
+  var from = device.route[st.currentIndex];
+  var to = device.route[Math.min(st.currentIndex + 1, device.route.length - 1)];
+  var pos = interpolate(from, to, st.subStep);
+  var jitter = parseFloat(document.getElementById('cfgJitter').value);
+  var jPos = addJitter(pos[0], pos[1], jitter);
+  sendLocation(device, jPos[0], jPos[1]);
+  var interval = parseInt(document.getElementById('cfgInterval').value);
+  st.timer = setTimeout(function() { tick(device); }, interval);
+}
+
+function startDevice(id) {
+  var device = TEST_DEVICES.find(function(d) { return d.device_id === id; });
+  if (!device) return;
+  if (!deviceState[id]) deviceState[id] = { running: false, pointsSent: 0, currentIndex: 0, subStep: 0, battery: 85 + Math.floor(Math.random() * 15), timer: null };
+  var st = deviceState[id];
+  if (st.running) return;
+  st.running = true;
+  log('&#9654; ' + device.device_name + ': Started', 'info');
+  tick(device);
+  renderDeviceCards();
+}
+
+function stopDevice(id) {
+  var st = deviceState[id];
+  if (!st || !st.running) return;
+  st.running = false;
+  if (st.timer) clearTimeout(st.timer);
+  var device = TEST_DEVICES.find(function(d) { return d.device_id === id; });
+  log('&#9632; ' + (device ? device.device_name : id) + ': Stopped', 'warn');
+  renderDeviceCards();
+}
+
+function startAll() { TEST_DEVICES.forEach(function(d) { startDevice(d.device_id); }); }
+function stopAll() { TEST_DEVICES.forEach(function(d) { stopDevice(d.device_id); }); }
+</script>
+</body>
+</html>
