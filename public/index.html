@@ -124,6 +124,11 @@
   .empty-state svg{width:48px;height:48px;margin-bottom:12px;opacity:0.3}
   .empty-state p{font-size:13px}
 
+  /* Version info */
+  .version-info{background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+  .version-info .ver-label{color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:1px}
+  .version-info .ver-value{color:var(--yellow);font-weight:600;font-size:13px}
+
   /* Leaflet overrides */
   .leaflet-control-zoom a{background:var(--bg-card)!important;color:var(--text)!important;border-color:var(--border)!important}
   .leaflet-popup-content-wrapper{background:var(--bg-card);color:var(--text);border-radius:10px;border:1px solid var(--border)}
@@ -204,6 +209,18 @@
       </div>
       <div id="historyInfo" style="font-size:12px;color:var(--text-dim);"></div>
     </div>
+    <div class="sidebar-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3>App Updates</h3>
+        <button class="btn btn-sm" onclick="showUpdateOverlay()">Publish</button>
+      </div>
+      <div id="appVersionInfo">
+        <div class="version-info">
+          <div class="ver-label">Latest Published</div>
+          <div class="ver-value" id="latestVersionText">Loading...</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="map-container">
@@ -236,6 +253,21 @@
   </div>
 </div>
 
+<!-- Publish Update Overlay -->
+<div class="setup-overlay hidden" id="updateOverlay">
+  <div class="setup-box">
+    <h2>Publish <span>Update</span></h2>
+    <p>Push a new app version. Phones will prompt to update on next launch.</p>
+    <div class="form-group"><label>Version Code (integer, must be higher than current)</label><input type="number" id="updateVersionCode" placeholder="e.g. 5" /></div>
+    <div class="form-group"><label>Version Name</label><input type="text" id="updateVersionName" placeholder="e.g. 2.2" /></div>
+    <div class="form-group"><label>APK Download URL</label><input type="text" id="updateApkUrl" placeholder="e.g. https://github.com/.../releases/download/v2.2/app-release.apk" /></div>
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button class="btn" onclick="publishUpdate()" id="publishBtn" style="flex:1;">Publish</button>
+      <button class="btn btn-outline" onclick="hideUpdateOverlay()" style="flex:1;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ============================================================
 // STATE
@@ -245,18 +277,16 @@ var sb=null, realtimeChannel=null;
 var devices=[], selectedDevice=null, markers={}, liveTrails={};
 var historyLayers=[], historyPoints=[], playbackIndex=0, playbackInterval=null, playbackMarker=null;
 var map;
-var rtReconnectDelay = 5000; // Realtime reconnect backoff (starts at 5s)
+var rtReconnectDelay = 5000;
 
-// Reusable element for HTML escaping (fix #14)
 var _escDiv = document.createElement('div');
 function esc(s){ _escDiv.textContent=s; return _escDiv.innerHTML; }
 
 // ============================================================
-// BOOT — with CDN timeout (fix #6)
+// BOOT
 // ============================================================
 var bootTimeout = setTimeout(function(){
   document.getElementById('loadingMsg').textContent = 'Taking longer than expected...';
-  // After 15s total, show error
   setTimeout(function(){
     if(!sb) document.getElementById('loadingError').style.display='block';
   }, 10000);
@@ -268,7 +298,6 @@ var bootTimeout = setTimeout(function(){
     if(!cfg.supabaseUrl||!cfg.supabaseKey) throw new Error('Missing config');
     SUPABASE_URL=cfg.supabaseUrl; SUPABASE_KEY=cfg.supabaseKey;
 
-    // Check if Supabase JS loaded
     if(typeof window.supabase==='undefined'){
       document.getElementById('loadingError').textContent='Supabase library failed to load. Try refreshing.';
       document.getElementById('loadingError').style.display='block';
@@ -312,13 +341,12 @@ function testAuth(){
 }
 
 // ============================================================
-// AUTH (fix #8: clear error on retry, fix #9: disable button)
+// AUTH
 // ============================================================
 function doLogin(){
   var pwd=document.getElementById('loginPassword').value;
   if(!pwd) return;
 
-  // Clear previous error, disable button
   document.getElementById('loginError').style.display='none';
   var btn=document.getElementById('loginBtn');
   btn.disabled=true; btn.textContent='Signing in...';
@@ -350,6 +378,7 @@ function initApp(){
   initMap();
   loadDevices();
   loadTodayPointCount();
+  loadLatestVersion();
   subscribeRealtime();
   document.getElementById('historyDate').value=new Date().toISOString().split('T')[0];
   setInterval(loadDevices, 60000);
@@ -361,13 +390,12 @@ function initMap(){
 }
 
 // ============================================================
-// REALTIME (fix #4: update device cache, fix #5: backoff reconnect)
+// REALTIME
 // ============================================================
 function subscribeRealtime(){
   realtimeChannel=sb.channel('tracker-live')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'locations'},function(payload){
       var loc=payload.new;
-      // Update device in local cache immediately (fix #4)
       var dev=devices.find(function(d){return d.device_id===loc.device_id;});
       if(dev){
         dev.is_online=true;
@@ -384,10 +412,9 @@ function subscribeRealtime(){
     .subscribe(function(status){
       if(status==='SUBSCRIBED'){
         setConn('Live','#22c55e');
-        rtReconnectDelay=5000; // Reset backoff on success
+        rtReconnectDelay=5000;
       } else if(status==='CLOSED'||status==='CHANNEL_ERROR'){
         setConn('Reconnecting...','#f5c518');
-        // Exponential backoff: 5s → 10s → 20s → ... → 60s max (fix #5)
         setTimeout(function(){
           try{ sb.removeChannel(realtimeChannel); }catch(e){}
           subscribeRealtime();
@@ -420,7 +447,7 @@ function loadDevices(){
 }
 
 // ============================================================
-// RENDER DEVICE LIST (fix #11: delete button)
+// RENDER DEVICE LIST
 // ============================================================
 function renderDeviceList(){
   var c=document.getElementById('deviceList');
@@ -435,7 +462,7 @@ function renderDeviceList(){
     var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<300000;
     var ls=d.last_seen ? timeAgo(new Date(d.last_seen)) : 'Never';
     var ac=selectedDevice===d.device_id;
-    return '<div class="device-card '+(ac?'active':'')+'" onclick="selectDevice(\''+d.device_id+'\')">'
+    return '<div class="device-card '+(ac?'active':'')+'\" onclick="selectDevice(\''+d.device_id+'\')">'
       +'<button class="delete-device-btn" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Delete device">&#10005;</button>'
       +'<div class="device-card-header"><span class="device-name">'+esc(d.device_name)+'</span>'
       +'<span class="device-status '+(on?'online':'offline')+'">'+(on?'ONLINE':'OFFLINE')+'</span></div>'
@@ -490,13 +517,12 @@ function selectDevice(id){
 }
 
 // ============================================================
-// DELETE DEVICE (fix #11)
+// DELETE DEVICE
 // ============================================================
 function deleteDevice(deviceId, deviceName){
   if(!confirm('Delete "'+deviceName+'"? This also deletes all its location history.')) return;
   sb.from('devices').delete().eq('device_id',deviceId).then(function(res){
     if(res.error) throw res.error;
-    // Remove marker and trail from map
     if(markers[deviceId]){ map.removeLayer(markers[deviceId]); delete markers[deviceId]; }
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(selectedDevice===deviceId) selectedDevice=null;
@@ -505,7 +531,7 @@ function deleteDevice(deviceId, deviceName){
 }
 
 // ============================================================
-// ROUTE HISTORY (fix #7: iterative Douglas-Peucker)
+// ROUTE HISTORY
 // ============================================================
 function loadHistory(){
   if(!selectedDevice){ alert('Select a device first'); return; }
@@ -558,7 +584,7 @@ function loadHistory(){
 }
 
 // ============================================================
-// ITERATIVE DOUGLAS-PEUCKER (fix #7: no stack overflow on large inputs)
+// ITERATIVE DOUGLAS-PEUCKER
 // ============================================================
 function simplifyPath(points, epsilon){
   if(points.length<=2) return points;
@@ -642,7 +668,7 @@ function updatePlaybackPos(){
 }
 
 // ============================================================
-// EXPORT CSV (fix #12)
+// EXPORT CSV
 // ============================================================
 function exportCSV(){
   if(!historyPoints.length) return;
@@ -688,6 +714,53 @@ function addDevice(){
     ['setupDeviceName','setupDeviceId','setupAssignedTo','setupPhone'].forEach(function(x){document.getElementById(x).value='';});
     loadDevices();
   }).catch(function(e){ alert('Error: '+(e.message||e)); });
+}
+
+// ============================================================
+// APP VERSION MANAGEMENT
+// ============================================================
+function showUpdateOverlay(){ document.getElementById('updateOverlay').classList.remove('hidden'); }
+function hideUpdateOverlay(){ document.getElementById('updateOverlay').classList.add('hidden'); }
+
+function loadLatestVersion(){
+  sb.from('app_versions').select('*').order('version_code',{ascending:false}).limit(1).then(function(res){
+    if(res.error){ console.error(res.error); document.getElementById('latestVersionText').textContent='Error loading'; return; }
+    var data=res.data||[];
+    if(data.length===0){
+      document.getElementById('latestVersionText').textContent='No versions published';
+      return;
+    }
+    var v=data[0];
+    document.getElementById('latestVersionText').textContent='v'+esc(v.version_name)+' (code '+v.version_code+')';
+    document.getElementById('updateVersionCode').placeholder='Must be > '+v.version_code;
+  }).catch(function(e){
+    console.error(e);
+    document.getElementById('latestVersionText').textContent='Not available';
+  });
+}
+
+function publishUpdate(){
+  var code=parseInt(document.getElementById('updateVersionCode').value);
+  var name=document.getElementById('updateVersionName').value.trim();
+  var url=document.getElementById('updateApkUrl').value.trim();
+
+  if(!code||!name||!url){ alert('All fields are required'); return; }
+  if(isNaN(code)||code<1){ alert('Version code must be a positive number'); return; }
+
+  var btn=document.getElementById('publishBtn');
+  btn.disabled=true; btn.textContent='Publishing...';
+
+  sb.from('app_versions').insert({version_code:code,version_name:name,apk_url:url}).then(function(res){
+    btn.disabled=false; btn.textContent='Publish';
+    if(res.error) throw res.error;
+    hideUpdateOverlay();
+    ['updateVersionCode','updateVersionName','updateApkUrl'].forEach(function(x){document.getElementById(x).value='';});
+    loadLatestVersion();
+    alert('Update v'+name+' published! Phones will prompt to update on next app launch.');
+  }).catch(function(e){
+    btn.disabled=false; btn.textContent='Publish';
+    alert('Error: '+(e.message||e));
+  });
 }
 
 // ============================================================
