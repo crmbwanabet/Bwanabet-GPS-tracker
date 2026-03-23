@@ -256,18 +256,17 @@ var sb=null, realtimeChannel=null;
 var devices=[], selectedDevice=null, markers={}, liveTrails={};
 var historyLayers=[], historyPoints=[], playbackIndex=0, playbackInterval=null, playbackMarker=null;
 var map;
-var rtReconnectDelay = 5000; // Realtime reconnect backoff (starts at 5s)
+var rtReconnectDelay = 5000;
+var OFFLINE_THRESHOLD_MS = 600000; // 10 minutes — must match Supabase mark_devices_offline cron
 
-// Reusable element for HTML escaping (fix #14)
 var _escDiv = document.createElement('div');
 function esc(s){ _escDiv.textContent=s; return _escDiv.innerHTML; }
 
 // ============================================================
-// BOOT — with CDN timeout (fix #6)
+// BOOT
 // ============================================================
 var bootTimeout = setTimeout(function(){
   document.getElementById('loadingMsg').textContent = 'Taking longer than expected...';
-  // After 15s total, show error
   setTimeout(function(){
     if(!sb) document.getElementById('loadingError').style.display='block';
   }, 10000);
@@ -279,7 +278,6 @@ var bootTimeout = setTimeout(function(){
     if(!cfg.supabaseUrl||!cfg.supabaseKey) throw new Error('Missing config');
     SUPABASE_URL=cfg.supabaseUrl; SUPABASE_KEY=cfg.supabaseKey;
 
-    // Check if Supabase JS loaded
     if(typeof window.supabase==='undefined'){
       document.getElementById('loadingError').textContent='Supabase library failed to load. Try refreshing.';
       document.getElementById('loadingError').style.display='block';
@@ -323,13 +321,12 @@ function testAuth(){
 }
 
 // ============================================================
-// AUTH (fix #8: clear error on retry, fix #9: disable button)
+// AUTH
 // ============================================================
 function doLogin(){
   var pwd=document.getElementById('loginPassword').value;
   if(!pwd) return;
 
-  // Clear previous error, disable button
   document.getElementById('loginError').style.display='none';
   var btn=document.getElementById('loginBtn');
   btn.disabled=true; btn.textContent='Signing in...';
@@ -373,13 +370,12 @@ function initMap(){
 }
 
 // ============================================================
-// REALTIME (fix #4: update device cache, fix #5: backoff reconnect)
+// REALTIME
 // ============================================================
 function subscribeRealtime(){
   realtimeChannel=sb.channel('tracker-live')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'locations'},function(payload){
       var loc=payload.new;
-      // Update device in local cache immediately (fix #4)
       var dev=devices.find(function(d){return d.device_id===loc.device_id;});
       if(dev){
         dev.is_online=true;
@@ -396,10 +392,9 @@ function subscribeRealtime(){
     .subscribe(function(status){
       if(status==='SUBSCRIBED'){
         setConn('Live','#22c55e');
-        rtReconnectDelay=5000; // Reset backoff on success
+        rtReconnectDelay=5000;
       } else if(status==='CLOSED'||status==='CHANNEL_ERROR'){
         setConn('Reconnecting...','#f5c518');
-        // Exponential backoff: 5s → 10s → 20s → ... → 60s max (fix #5)
         setTimeout(function(){
           try{ sb.removeChannel(realtimeChannel); }catch(e){}
           subscribeRealtime();
@@ -432,7 +427,7 @@ function loadDevices(){
 }
 
 // ============================================================
-// RENDER DEVICE LIST (fix #11: delete button)
+// RENDER DEVICE LIST
 // ============================================================
 function renderDeviceList(){
   var c=document.getElementById('deviceList');
@@ -444,10 +439,10 @@ function renderDeviceList(){
   }
 
   c.innerHTML=devices.map(function(d){
-    var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<300000;
+    var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
     var ls=d.last_seen ? timeAgo(new Date(d.last_seen)) : 'Never';
     var ac=selectedDevice===d.device_id;
-    return '<div class="device-card '+(ac?'active':'')+'" onclick="selectDevice(\''+d.device_id+'\')">'
+    return '<div class="device-card '+(ac?'active':'')+'\" onclick="selectDevice(\''+d.device_id+'\')">'
       +'<button class="delete-device-btn" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Delete device">&#10005;</button>'
       +'<div class="device-card-header"><span class="device-name">'+esc(d.device_name)+'</span>'
       +'<span class="device-status '+(on?'online':'offline')+'">'+(on?'ONLINE':'OFFLINE')+'</span></div>'
@@ -468,7 +463,7 @@ function updateMarkers(latest){
 }
 
 function updateSingleMarker(d,loc){
-  var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<300000;
+  var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
   var popup='<strong>'+esc(d.device_name)+'</strong><br>'+esc(d.assigned_to||'')+'<br>Speed: '+(loc.speed||0).toFixed(1)+' m/s<br>Accuracy: '+(loc.accuracy||0).toFixed(0)+'m<br>'+new Date(loc.recorded_at).toLocaleString();
   if(markers[d.device_id]){
     markers[d.device_id].setLatLng([loc.latitude,loc.longitude]);
@@ -488,7 +483,7 @@ function addToLiveTrail(deviceId,lat,lng){
 }
 
 function updateStats(){
-  var on=devices.filter(function(d){return d.is_online&&d.last_seen&&(Date.now()-new Date(d.last_seen).getTime())<300000;});
+  var on=devices.filter(function(d){return d.is_online&&d.last_seen&&(Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;});
   document.getElementById('onlineCount').textContent=on.length;
 }
 
@@ -502,13 +497,12 @@ function selectDevice(id){
 }
 
 // ============================================================
-// DELETE DEVICE (fix #11)
+// DELETE DEVICE
 // ============================================================
 function deleteDevice(deviceId, deviceName){
   if(!confirm('Delete "'+deviceName+'"? This also deletes all its location history.')) return;
   sb.from('devices').delete().eq('device_id',deviceId).then(function(res){
     if(res.error) throw res.error;
-    // Remove marker and trail from map
     if(markers[deviceId]){ map.removeLayer(markers[deviceId]); delete markers[deviceId]; }
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(selectedDevice===deviceId) selectedDevice=null;
@@ -517,7 +511,7 @@ function deleteDevice(deviceId, deviceName){
 }
 
 // ============================================================
-// ROUTE HISTORY (fix #7: iterative Douglas-Peucker)
+// ROUTE HISTORY
 // ============================================================
 function loadHistory(){
   if(!selectedDevice){ alert('Select a device first'); return; }
@@ -570,7 +564,7 @@ function loadHistory(){
 }
 
 // ============================================================
-// ITERATIVE DOUGLAS-PEUCKER (fix #7: no stack overflow on large inputs)
+// ITERATIVE DOUGLAS-PEUCKER
 // ============================================================
 function simplifyPath(points, epsilon){
   if(points.length<=2) return points;
@@ -654,7 +648,7 @@ function updatePlaybackPos(){
 }
 
 // ============================================================
-// EXPORT CSV (fix #12)
+// EXPORT CSV
 // ============================================================
 function exportCSV(){
   if(!historyPoints.length) return;
