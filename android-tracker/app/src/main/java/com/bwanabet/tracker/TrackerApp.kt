@@ -1,0 +1,56 @@
+package com.bwanabet.tracker
+
+import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+
+class TrackerApp : Application() {
+
+    companion object {
+        const val CHANNEL_ID = "bwanabet_tracker_channel"
+
+        // ---- Supabase Config ----
+        const val SUPABASE_URL = "https://izgpyefzkyrtzjsnglvu.supabase.co"
+        const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6Z3B5ZWZ6a3lydHpqc25nbHZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NjYzNTcsImV4cCI6MjA4OTU0MjM1N30.8gopVKKHk7xVirR--eqqDlyAJSdiaWCttQLINqqQEGI"
+        const val DASHBOARD_KEY = "bwanabet2026!"
+
+        // ---- Location Intervals ----
+        const val MOVING_INTERVAL_MS = 10000L       // 10s when moving
+        const val STATIONARY_INTERVAL_MS = 60000L   // 1 min when still
+        const val FASTEST_INTERVAL_MS = 3000L       // 3s floor for GPS updates
+
+        // ---- Sync Settings ----
+        const val SYNC_TIMER_MS = 120000L           // Sync every 2 min
+        const val SYNC_BATCH_SIZE = 20              // Points per upload
+        const val MAX_RETRY_DELAY_MS = 300000L      // 5 min max backoff
+        const val INITIAL_RETRY_DELAY_MS = 5000L    // 5 sec initial backoff
+
+        // ---- Motion Detection ----
+        const val STATIONARY_THRESHOLD_M = 10.0     // <10m moved = stationary
+        const val STATIONARY_COUNT_TRIGGER = 3      // 3 readings to confirm
+
+        // ---- Point Filtering ----
+        const val COLLINEAR_TOLERANCE_M = 2.0       // Skip mid-points within 2m of line
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Location Tracking",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "BwanaBet GPS tracking service"
+                setShowBadge(false)
+            }
+            val mgr = getSystemService(NotificationManager::class.java)
+            mgr.createNotificationChannel(channel)
+        }
+    }
+}
