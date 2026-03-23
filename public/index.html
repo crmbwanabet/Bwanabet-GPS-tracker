@@ -204,6 +204,17 @@
       </div>
       <div id="historyInfo" style="font-size:12px;color:var(--text-dim);"></div>
     </div>
+    <div class="sidebar-section">
+      <h3>App Updates</h3>
+      <div id="currentVersion" style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Current: loading...</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <input type="number" id="updateVersionCode" placeholder="Version Code (e.g. 2)" style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:12px;" />
+        <input type="text" id="updateVersionName" placeholder="Version Name (e.g. 1.1)" style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:12px;" />
+        <input type="text" id="updateApkUrl" placeholder="APK Download URL" style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:12px;" />
+        <button class="btn" onclick="publishUpdate()" id="publishBtn">Publish Update</button>
+      </div>
+      <div id="publishResult" style="font-size:12px;margin-top:8px;"></div>
+    </div>
   </div>
 
   <div class="map-container">
@@ -350,6 +361,7 @@ function initApp(){
   initMap();
   loadDevices();
   loadTodayPointCount();
+  loadCurrentVersion();
   subscribeRealtime();
   document.getElementById('historyDate').value=new Date().toISOString().split('T')[0];
   setInterval(loadDevices, 60000);
@@ -709,6 +721,54 @@ function timeAgo(d){
   if(s<3600)return Math.floor(s/60)+'m ago';
   if(s<86400)return Math.floor(s/3600)+'h ago';
   return Math.floor(s/86400)+'d ago';
+}
+
+// ============================================================
+// APP UPDATES
+// ============================================================
+function loadCurrentVersion(){
+  sb.from('app_versions').select('*').order('version_code',{ascending:false}).limit(1).then(function(res){
+    if(res.data && res.data.length > 0){
+      var v = res.data[0];
+      document.getElementById('currentVersion').innerHTML = 'Current: <strong style="color:var(--yellow)">v' + esc(v.version_name) + '</strong> (code ' + v.version_code + ')';
+    } else {
+      document.getElementById('currentVersion').textContent = 'No versions published yet';
+    }
+  }).catch(function(){ document.getElementById('currentVersion').textContent = 'Could not load version info'; });
+}
+
+function publishUpdate(){
+  var code = document.getElementById('updateVersionCode').value.trim();
+  var name = document.getElementById('updateVersionName').value.trim();
+  var url = document.getElementById('updateApkUrl').value.trim();
+  var result = document.getElementById('publishResult');
+  var btn = document.getElementById('publishBtn');
+
+  if(!code || !name || !url){
+    result.style.color = 'var(--red)';
+    result.textContent = 'All three fields are required';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Publishing...';
+  result.textContent = '';
+
+  sb.from('app_versions').insert({ version_code: parseInt(code), version_name: name, apk_url: url }).then(function(res){
+    if(res.error) throw res.error;
+    result.style.color = 'var(--green)';
+    result.textContent = 'Published v' + name + ' (code ' + code + '). Phones will update on next app open.';
+    document.getElementById('updateVersionCode').value = '';
+    document.getElementById('updateVersionName').value = '';
+    document.getElementById('updateApkUrl').value = '';
+    loadCurrentVersion();
+  }).catch(function(e){
+    result.style.color = 'var(--red)';
+    result.textContent = 'Error: ' + (e.message || e);
+  }).finally(function(){
+    btn.disabled = false;
+    btn.textContent = 'Publish Update';
+  });
 }
 </script>
 </body>
