@@ -1,2 +1,11 @@
 .vercel
 .env*.local
+
+# Android
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties
+android/app/release.keystore
+*.apk
