@@ -262,8 +262,8 @@ var historyLayers=[], historyPoints=[], playbackIndex=0, playbackInterval=null, 
 var map;
 var rtReconnectDelay = 5000;
 var OFFLINE_THRESHOLD_MS = 600000; // 10 minutes — must match Supabase mark_devices_offline cron
-var LIVE_TRAIL_MAX = 500; // Keep up to 500 points per live trail
-var ACCURACY_THRESHOLD = 30; // Ignore points with accuracy worse than 30m for trail drawing
+var LIVE_TRAIL_MAX = 2000; // Keep up to 2000 points per live trail
+var ACCURACY_THRESHOLD = 50; // Ignore points with accuracy worse than 50m for trail drawing
 var autoFollowDevice = null; // device_id to auto-pan to on new location
 
 var _escDiv = document.createElement('div');
@@ -494,7 +494,10 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
   if(accuracy && accuracy > ACCURACY_THRESHOLD) return;
 
   if(!liveTrails[deviceId]){
-    liveTrails[deviceId]=L.polyline([],{color:'#f5c518',weight:3,opacity:0.85}).addTo(map);
+    // Shadow line for glow effect
+    if(!window._trailShadows) window._trailShadows={};
+    window._trailShadows[deviceId]=L.polyline([],{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
+    liveTrails[deviceId]=L.polyline([],{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
     liveTrailPoints[deviceId]=[];
   }
   var trail=liveTrails[deviceId];
@@ -504,6 +507,7 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
     pts.splice(0, pts.length - LIVE_TRAIL_MAX);
   }
   trail.setLatLngs(pts);
+  if(window._trailShadows && window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(pts);
 
   // Auto-follow selected device
   if(autoFollowDevice===deviceId && map){
@@ -527,14 +531,14 @@ function selectDevice(id){
   }
 }
 
-// Load today's trail from DB for a device (persistent across refresh)
+// Load last 18 hours of trail from DB for a device (persistent across refresh)
 function loadLiveTrail(deviceId){
-  var today=new Date().toISOString().split('T')[0];
+  var since=new Date(Date.now() - 18*60*60*1000).toISOString();
   sb.from('locations').select('latitude,longitude,accuracy,recorded_at')
     .eq('device_id',deviceId)
-    .gte('recorded_at',today+'T00:00:00')
+    .gte('recorded_at',since)
     .order('recorded_at',{ascending:true})
-    .limit(5000)
+    .limit(10000)
     .then(function(res){
       if(res.error||!res.data||!res.data.length) return;
 
@@ -547,10 +551,13 @@ function loadLiveTrail(deviceId){
       });
       if(!pts.length) return;
 
-      // Replace live trail with full today's data
+      // Replace live trail with full 18hr data
       if(liveTrails[deviceId]) map.removeLayer(liveTrails[deviceId]);
+      if(window._trailShadows && window._trailShadows[deviceId]) map.removeLayer(window._trailShadows[deviceId]);
+      if(!window._trailShadows) window._trailShadows={};
       liveTrailPoints[deviceId]=pts;
-      liveTrails[deviceId]=L.polyline(pts,{color:'#f5c518',weight:3,opacity:0.85}).addTo(map);
+      window._trailShadows[deviceId]=L.polyline(pts,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
+      liveTrails[deviceId]=L.polyline(pts,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
     }).catch(function(e){ console.error('loadLiveTrail error:',e); });
 }
 
@@ -563,6 +570,7 @@ function deleteDevice(deviceId, deviceName){
     if(res.error) throw res.error;
     if(markers[deviceId]){ map.removeLayer(markers[deviceId]); delete markers[deviceId]; }
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
+    if(window._trailShadows && window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
     if(selectedDevice===deviceId) selectedDevice=null;
     loadDevices();
   }).catch(function(e){ alert('Error deleting: '+(e.message||e)); });
