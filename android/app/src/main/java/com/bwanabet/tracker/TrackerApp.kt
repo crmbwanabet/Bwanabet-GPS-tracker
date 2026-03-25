@@ -16,13 +16,13 @@ class TrackerApp : Application() {
         const val DASHBOARD_KEY = "bwanabet2026!"
 
         // ---- Location Intervals ----
-        const val MOVING_INTERVAL_MS = 10000L       // 10s when moving
-        const val STATIONARY_INTERVAL_MS = 60000L   // 1 min when still
-        const val FASTEST_INTERVAL_MS = 3000L       // 3s floor for GPS updates
+        const val MOVING_INTERVAL_MS = 5000L        // 5s when moving (smoother trail)
+        const val STATIONARY_INTERVAL_MS = 30000L   // 30s when still
+        const val FASTEST_INTERVAL_MS = 2000L       // 2s floor for GPS updates
 
         // ---- Sync Settings ----
-        const val SYNC_TIMER_MS = 120000L           // Sync every 2 min
-        const val SYNC_BATCH_SIZE = 20              // Points per upload
+        const val SYNC_TIMER_MS = 60000L            // Sync every 1 min
+        const val SYNC_BATCH_SIZE = 50              // Points per upload
         const val MAX_RETRY_DELAY_MS = 300000L      // 5 min max backoff
         const val INITIAL_RETRY_DELAY_MS = 5000L    // 5 sec initial backoff
 
