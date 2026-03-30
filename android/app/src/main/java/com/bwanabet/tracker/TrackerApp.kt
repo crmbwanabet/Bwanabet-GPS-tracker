@@ -32,6 +32,10 @@ class TrackerApp : Application() {
 
         // ---- Point Filtering ----
         const val COLLINEAR_TOLERANCE_M = 2.0       // Skip mid-points within 2m of line
+
+        // ---- Spike Rejection ----
+        const val MAX_SPEED_MS = 33.0               // 120 km/h — reject jumps faster than this
+        const val MIN_SPIKE_DISTANCE_M = 50.0       // Only check speed if jump > 50m
     }
 
     override fun onCreate() {
