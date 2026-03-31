@@ -68,9 +68,12 @@
   .device-status.offline{background:var(--red-dim);color:var(--red)}
   .device-meta{display:flex;flex-direction:column;gap:4px}
   .device-meta span{font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
-  .delete-device-btn{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;opacity:0;transition:opacity 0.2s;padding:4px}
-  .device-card:hover .delete-device-btn{opacity:1}
-  .delete-device-btn:hover{color:var(--red)}
+  .device-actions{position:absolute;top:8px;right:10px;display:flex;gap:4px;opacity:0;transition:opacity 0.2s}
+  .device-card:hover .device-actions{opacity:1}
+  .device-action-btn{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace}
+  .device-action-btn:hover{background:var(--bg-card-hover)}
+  .device-action-btn.danger:hover{color:var(--red)}
+  .device-action-btn.warn:hover{color:var(--yellow)}
 
   /* History */
   .history-section{flex:1;overflow-y:auto}
@@ -194,6 +197,24 @@
         <button class="btn btn-sm" onclick="showSetup()">+ Add</button>
       </div>
       <div id="deviceList"></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Timeframe Filter</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:11px;color:var(--text-dim);min-width:36px;">From</label>
+          <input type="datetime-local" id="filterFrom" style="flex:1;background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 8px;font-size:11px;font-family:'DM Sans',sans-serif;" />
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:11px;color:var(--text-dim);min-width:36px;">To</label>
+          <input type="datetime-local" id="filterTo" style="flex:1;background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 8px;font-size:11px;font-family:'DM Sans',sans-serif;" />
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" onclick="applyTimeFilter()" style="flex:1;">Apply</button>
+          <button class="btn btn-sm btn-outline" onclick="resetTimeFilter()" style="flex:1;">Reset</button>
+        </div>
+        <div id="filterInfo" style="font-size:11px;color:var(--text-dim);"></div>
+      </div>
     </div>
     <div class="sidebar-section history-section">
       <h3>Route History</h3>
@@ -372,6 +393,11 @@ function initApp(){
   loadCurrentVersion();
   subscribeRealtime();
   document.getElementById('historyDate').value=new Date().toISOString().split('T')[0];
+  // Default timeframe filter: today 00:00 to now
+  var now=new Date();
+  var todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  document.getElementById('filterFrom').value=toLocalDatetime(todayStart);
+  document.getElementById('filterTo').value=toLocalDatetime(now);
   setInterval(loadDevices, 60000);
 }
 
@@ -493,7 +519,10 @@ function renderDeviceList(){
     var ls=d.last_seen ? timeAgo(new Date(d.last_seen)) : 'Never';
     var ac=selectedDevice===d.device_id;
     return '<div class="device-card '+(ac?'active':'')+'\" onclick="selectDevice(\''+d.device_id+'\')">'
-      +'<button class="delete-device-btn" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Delete device">&#10005;</button>'
+      +'<div class="device-actions">'
+      +'<button class="device-action-btn warn" onclick="event.stopPropagation();clearDeviceData(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Clear location data">Clear</button>'
+      +'<button class="device-action-btn danger" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Delete device">&#10005;</button>'
+      +'</div>'
       +'<div class="device-card-header"><span class="device-name">'+esc(d.device_name)+'</span>'
       +'<span class="device-status '+(on?'online':'offline')+'">'+(on?'ONLINE':'OFFLINE')+'</span></div>'
       +'<div class="device-meta">'
@@ -593,13 +622,21 @@ function selectDevice(id){
   }
 }
 
-// Load last 18 hours of trail from DB for a device, snap to roads
+// Load trail from DB for a device, snap to roads (respects timeframe filter)
 function loadLiveTrail(deviceId){
-  var since=new Date(Date.now() - 18*60*60*1000).toISOString();
-  sb.from('locations').select('latitude,longitude,accuracy,recorded_at')
+  var since, until;
+  if(activeTimeFilter){
+    since=activeTimeFilter.from||new Date(0).toISOString();
+    until=activeTimeFilter.to||new Date().toISOString();
+  } else {
+    since=new Date(Date.now() - 18*60*60*1000).toISOString();
+    until=null;
+  }
+  var q=sb.from('locations').select('latitude,longitude,accuracy,recorded_at')
     .eq('device_id',deviceId)
-    .gte('recorded_at',since)
-    .order('recorded_at',{ascending:true})
+    .gte('recorded_at',since);
+  if(until) q=q.lte('recorded_at',until);
+  q.order('recorded_at',{ascending:true})
     .limit(10000)
     .then(async function(res){
       if(res.error||!res.data||!res.data.length) return;
@@ -643,6 +680,73 @@ function deleteDevice(deviceId, deviceName){
     if(selectedDevice===deviceId) selectedDevice=null;
     loadDevices();
   }).catch(function(e){ alert('Error deleting: '+(e.message||e)); });
+}
+
+// ============================================================
+// CLEAR DEVICE DATA (keeps device, deletes locations)
+// ============================================================
+function clearDeviceData(deviceId, deviceName){
+  if(!confirm('Clear ALL location data for "'+deviceName+'"? The device will remain but all history will be deleted.')) return;
+  sb.from('locations').delete().eq('device_id',deviceId).then(function(res){
+    if(res.error) throw res.error;
+    // Remove trail from map
+    if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
+    if(window._trailShadows&&window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
+    delete liveTrailPoints[deviceId];
+    delete rawLivePoints[deviceId];
+    alert('Location data cleared for "'+deviceName+'"');
+    loadDevices();
+    loadTodayPointCount();
+  }).catch(function(e){ alert('Error: '+(e.message||e)); });
+}
+
+// ============================================================
+// TIMEFRAME FILTER
+// ============================================================
+var activeTimeFilter = null; // {from: ISO, to: ISO} or null
+
+function applyTimeFilter(){
+  var fromVal=document.getElementById('filterFrom').value;
+  var toVal=document.getElementById('filterTo').value;
+  if(!fromVal&&!toVal){ alert('Set at least a From or To time'); return; }
+
+  activeTimeFilter={
+    from: fromVal ? new Date(fromVal).toISOString() : null,
+    to: toVal ? new Date(toVal).toISOString() : null
+  };
+
+  var info=[];
+  if(activeTimeFilter.from) info.push('from '+new Date(activeTimeFilter.from).toLocaleString());
+  if(activeTimeFilter.to) info.push('to '+new Date(activeTimeFilter.to).toLocaleString());
+  document.getElementById('filterInfo').textContent='Showing: '+info.join(' ');
+
+  // Reload all visible trails with the filter
+  reloadAllTrails();
+}
+
+function resetTimeFilter(){
+  activeTimeFilter=null;
+  document.getElementById('filterFrom').value='';
+  document.getElementById('filterTo').value='';
+  document.getElementById('filterInfo').textContent='';
+  reloadAllTrails();
+}
+
+function reloadAllTrails(){
+  // Clear all live trails from map
+  Object.keys(liveTrails).forEach(function(id){
+    if(liveTrails[id]) map.removeLayer(liveTrails[id]);
+    if(window._trailShadows&&window._trailShadows[id]) map.removeLayer(window._trailShadows[id]);
+  });
+  liveTrails={}; liveTrailPoints={}; rawLivePoints={};
+  if(!window._trailShadows) window._trailShadows={}; else window._trailShadows={};
+
+  // Reload trail for selected device, or all online devices
+  if(selectedDevice){
+    loadLiveTrail(selectedDevice);
+  } else {
+    loadAllOnlineTrails();
+  }
 }
 
 // ============================================================
@@ -877,6 +981,11 @@ function loadTodayPointCount(){
 // ============================================================
 // UTILS
 // ============================================================
+function toLocalDatetime(d){
+  var pad=function(n){return n<10?'0'+n:''+n;};
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+
 function timeAgo(d){
   var s=(Date.now()-d.getTime())/1000;
   if(s<60)return'Just now';
