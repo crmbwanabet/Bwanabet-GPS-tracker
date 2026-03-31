@@ -65,6 +65,7 @@ class LocationService : Service() {
     private var savedPointCount = 0
 
     private var syncTimerRunnable: Runnable? = null
+    private val recentFixes = ArrayDeque<Location>()
 
     companion object {
         private const val TAG = "LocationService"
@@ -201,25 +202,32 @@ class LocationService : Service() {
     private fun processLocation(location: Location) {
         Log.d(TAG, "GPS fix: ${location.latitude}, ${location.longitude} acc=${location.accuracy}")
 
+        // --- Consensus filter: buffer fixes, only accept when 3 agree ---
+        recentFixes.addLast(location)
+        if (recentFixes.size > TrackerApp.CONSENSUS_COUNT) recentFixes.removeFirst()
+
+        if (recentFixes.size >= TrackerApp.CONSENSUS_COUNT) {
+            val fixes = recentFixes.toList()
+            var maxSpread = 0f
+            for (i in fixes.indices) {
+                for (j in i + 1 until fixes.size) {
+                    val d = fixes[i].distanceTo(fixes[j])
+                    if (d > maxSpread) maxSpread = d
+                }
+            }
+            if (maxSpread > TrackerApp.CONSENSUS_RADIUS_M) {
+                Log.d(TAG, "Consensus rejected: spread=${maxSpread.toInt()}m (need <${TrackerApp.CONSENSUS_RADIUS_M.toInt()}m)")
+                return
+            }
+        } else {
+            Log.d(TAG, "Buffering fix ${recentFixes.size}/${TrackerApp.CONSENSUS_COUNT}")
+            return
+        }
+
+        // --- Consensus passed: use latest fix ---
         val prev = lastLocation
         if (prev != null) {
             val distMoved = prev.distanceTo(location)
-
-            // Reject GPS spikes using two checks:
-            // 1) Implied speed > 120 km/h (impossible for most use cases)
-            // 2) GPS reports low speed but distance jumped far (sensor disagrees with position)
-            val timeDeltaS = (location.time - prev.time) / 1000.0
-            if (timeDeltaS > 0) {
-                val impliedSpeed = distMoved / timeDeltaS
-                if (impliedSpeed > TrackerApp.MAX_SPEED_MS) {
-                    Log.d(TAG, "Spike rejected (speed): ${distMoved.toInt()}m in ${timeDeltaS.toInt()}s = ${(impliedSpeed * 3.6).toInt()} km/h")
-                    return
-                }
-            }
-            if (location.speed < 2.0f && distMoved > TrackerApp.SPIKE_DISTANCE_M) {
-                Log.d(TAG, "Spike rejected (drift): GPS speed=${location.speed} but jumped ${distMoved.toInt()}m")
-                return
-            }
 
             if (distMoved < TrackerApp.STATIONARY_THRESHOLD_M) {
                 stationaryCount++

@@ -32,8 +32,8 @@ class TrackerApp : Application() {
 
         // ---- Point Filtering ----
         const val COLLINEAR_TOLERANCE_M = 2.0       // Skip mid-points within 2m of line
-        const val MAX_SPEED_MS = 33.0               // 120 km/h — faster = GPS spike, reject
-        const val SPIKE_DISTANCE_M = 30.0           // If GPS speed < 2 m/s but jumped > 30m = spike
+        const val CONSENSUS_COUNT = 3               // Need 3 fixes agreeing to confirm position
+        const val CONSENSUS_RADIUS_M = 25.0         // Fixes must be within 25m of each other
     }
 
     override fun onCreate() {
