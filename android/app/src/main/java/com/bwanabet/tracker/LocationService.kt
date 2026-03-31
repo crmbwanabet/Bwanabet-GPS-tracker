@@ -62,7 +62,6 @@ class LocationService : Service() {
     private var prevSavedLng = 0.0
     private var lastSavedLat = 0.0
     private var lastSavedLng = 0.0
-    private var lastSavedTime = 0L
     private var savedPointCount = 0
 
     private var syncTimerRunnable: Runnable? = null
@@ -202,27 +201,19 @@ class LocationService : Service() {
     private fun processLocation(location: Location) {
         Log.d(TAG, "GPS fix: ${location.latitude}, ${location.longitude} acc=${location.accuracy}")
 
-        // ---- Spike rejection: reject points that imply impossible speed ----
-        if (lastSavedTime > 0) {
-            val dtSeconds = (location.time - lastSavedTime) / 1000.0
-            if (dtSeconds > 0) {
-                val results = FloatArray(1)
-                Location.distanceBetween(
-                    lastSavedLat, lastSavedLng,
-                    location.latitude, location.longitude, results
-                )
-                val dist = results[0]
-                val impliedSpeed = dist / dtSeconds
-                if (dist > TrackerApp.MIN_SPIKE_DISTANCE_M && impliedSpeed > TrackerApp.MAX_SPEED_MS) {
-                    Log.d(TAG, "Rejected spike: ${dist.toInt()}m in ${dtSeconds.toInt()}s = ${(impliedSpeed * 3.6).toInt()} km/h")
-                    return
-                }
-            }
-        }
-
         val prev = lastLocation
         if (prev != null) {
             val distMoved = prev.distanceTo(location)
+
+            // Reject GPS spikes: if implied speed exceeds MAX_SPEED_MS, discard
+            val timeDeltaS = (location.time - prev.time) / 1000.0
+            if (timeDeltaS > 0) {
+                val impliedSpeed = distMoved / timeDeltaS
+                if (impliedSpeed > TrackerApp.MAX_SPEED_MS) {
+                    Log.d(TAG, "Spike rejected: ${distMoved.toInt()}m in ${timeDeltaS.toInt()}s = ${(impliedSpeed * 3.6).toInt()} km/h")
+                    return
+                }
+            }
 
             if (distMoved < TrackerApp.STATIONARY_THRESHOLD_M) {
                 stationaryCount++
@@ -284,7 +275,6 @@ class LocationService : Service() {
         prevSavedLng = lastSavedLng
         lastSavedLat = location.latitude
         lastSavedLng = location.longitude
-        lastSavedTime = location.time
         savedPointCount++
 
         locationDb.insertLocation(point)
