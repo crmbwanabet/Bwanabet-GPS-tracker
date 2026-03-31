@@ -507,20 +507,23 @@ function clearArrows(deviceId){
 // ============================================================
 // 1) Remove spikes: if a point is far from BOTH its neighbors, it's a spike
 // 2) Collapse stationary clusters within STATIONARY_RADIUS_M
-var SPIKE_THRESHOLD_M = 80; // Points jumping >80m from both neighbors = spike
+var SPIKE_THRESHOLD_M = 40; // Points jumping >40m from both neighbors = spike
 
 function filterSpikes(points){
   if(!points||points.length<3) return points||[];
-  var result=[points[0]];
-  for(var i=1;i<points.length-1;i++){
-    var dPrev=haversineM(points[i-1][0],points[i-1][1],points[i][0],points[i][1]);
-    var dNext=haversineM(points[i][0],points[i][1],points[i+1][0],points[i+1][1]);
-    // If point jumped far from previous AND far from next, it's a spike
-    if(dPrev>SPIKE_THRESHOLD_M && dNext>SPIKE_THRESHOLD_M) continue;
-    result.push(points[i]);
+  // Multi-pass: run twice to catch adjacent spikes
+  for(var pass=0;pass<2;pass++){
+    var result=[points[0]];
+    for(var i=1;i<points.length-1;i++){
+      var dPrev=haversineM(points[i-1][0],points[i-1][1],points[i][0],points[i][1]);
+      var dNext=haversineM(points[i][0],points[i][1],points[i+1][0],points[i+1][1]);
+      if(dPrev>SPIKE_THRESHOLD_M && dNext>SPIKE_THRESHOLD_M) continue;
+      result.push(points[i]);
+    }
+    result.push(points[points.length-1]);
+    points=result;
   }
-  result.push(points[points.length-1]);
-  return result;
+  return points;
 }
 
 function filterStationaryClusters(points){

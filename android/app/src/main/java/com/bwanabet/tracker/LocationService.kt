@@ -205,14 +205,20 @@ class LocationService : Service() {
         if (prev != null) {
             val distMoved = prev.distanceTo(location)
 
-            // Reject GPS spikes: if implied speed exceeds MAX_SPEED_MS, discard
+            // Reject GPS spikes using two checks:
+            // 1) Implied speed > 120 km/h (impossible for most use cases)
+            // 2) GPS reports low speed but distance jumped far (sensor disagrees with position)
             val timeDeltaS = (location.time - prev.time) / 1000.0
             if (timeDeltaS > 0) {
                 val impliedSpeed = distMoved / timeDeltaS
                 if (impliedSpeed > TrackerApp.MAX_SPEED_MS) {
-                    Log.d(TAG, "Spike rejected: ${distMoved.toInt()}m in ${timeDeltaS.toInt()}s = ${(impliedSpeed * 3.6).toInt()} km/h")
+                    Log.d(TAG, "Spike rejected (speed): ${distMoved.toInt()}m in ${timeDeltaS.toInt()}s = ${(impliedSpeed * 3.6).toInt()} km/h")
                     return
                 }
+            }
+            if (location.speed < 2.0f && distMoved > TrackerApp.SPIKE_DISTANCE_M) {
+                Log.d(TAG, "Spike rejected (drift): GPS speed=${location.speed} but jumped ${distMoved.toInt()}m")
+                return
             }
 
             if (distMoved < TrackerApp.STATIONARY_THRESHOLD_M) {
