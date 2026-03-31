@@ -781,8 +781,13 @@ function deleteDevice(deviceId, deviceName){
 // ============================================================
 function clearDeviceData(deviceId, deviceName){
   if(!confirm('Clear ALL location data for "'+deviceName+'"? The device will remain but all history will be deleted.')) return;
-  sb.from('locations').delete().eq('device_id',deviceId).then(function(res){
-    if(res.error) throw res.error;
+  // Delete locations and reset device online status
+  Promise.all([
+    sb.from('locations').delete().eq('device_id',deviceId),
+    sb.from('devices').update({is_online:false,last_seen:null}).eq('device_id',deviceId)
+  ]).then(function(results){
+    if(results[0].error) throw results[0].error;
+    if(results[1].error) throw results[1].error;
     // Remove trail from map
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(window._trailShadows&&window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
