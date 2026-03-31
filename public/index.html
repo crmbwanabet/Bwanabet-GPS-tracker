@@ -291,6 +291,7 @@ var rawLivePoints = {}; // raw unsnapped points per device (for re-snapping)
 var snapDebounceTimers = {}; // debounce timers for live trail re-snapping
 var SNAP_DEBOUNCE_MS = 30000; // re-snap live trail every 30s
 var OSRM_CHUNK_SIZE = 100; // max coordinates per OSRM request
+var STATIONARY_RADIUS_M = 25; // GPS drift radius — points within this are collapsed
 
 var _escDiv = document.createElement('div');
 function esc(s){ _escDiv.textContent=s; return _escDiv.innerHTML; }
@@ -467,7 +468,7 @@ function addDirectionArrows(points, deviceId){
     var bearing=90-angle;
     var icon=L.divIcon({
       className:'',
-      html:'<div style="font-size:14px;color:#000;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
+      html:'<div style="font-size:14px;color:#3b82f6;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
       iconSize:[14,14],
       iconAnchor:[7,7]
     });
@@ -485,7 +486,7 @@ function addHistoryArrows(points, layerArray){
     var bearing=90-angle;
     var icon=L.divIcon({
       className:'',
-      html:'<div style="font-size:14px;color:#000;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
+      html:'<div style="font-size:14px;color:#3b82f6;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
       iconSize:[14,14],
       iconAnchor:[7,7]
     });
@@ -499,6 +500,37 @@ function clearArrows(deviceId){
     trailArrows[deviceId].forEach(function(m){map.removeLayer(m);});
     delete trailArrows[deviceId];
   }
+}
+
+// ============================================================
+// STATIONARY CLUSTER FILTER
+// ============================================================
+// Collapses consecutive points within STATIONARY_RADIUS_M into a single point.
+// This eliminates GPS drift that makes a stationary device appear to move.
+function filterStationaryClusters(points){
+  if(!points||points.length<2) return points||[];
+  var result=[points[0]];
+  var anchorIdx=0;
+  for(var i=1;i<points.length;i++){
+    var d=haversineM(points[anchorIdx][0],points[anchorIdx][1],points[i][0],points[i][1]);
+    if(d>STATIONARY_RADIUS_M){
+      result.push(points[i]);
+      anchorIdx=i;
+    }
+  }
+  // Always keep last point
+  var last=points[points.length-1];
+  var rl=result[result.length-1];
+  if(rl[0]!==last[0]||rl[1]!==last[1]) result.push(last);
+  return result;
+}
+
+function haversineM(lat1,lon1,lat2,lon2){
+  var R=6371000;
+  var dLat=(lat2-lat1)*Math.PI/180;
+  var dLon=(lon2-lon1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
 // ============================================================
@@ -644,7 +676,8 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
     snapDebounceTimers[deviceId]=setTimeout(function(){
       snapDebounceTimers[deviceId]=null;
       if(rawLivePoints[deviceId]&&rawLivePoints[deviceId].length>=5){
-        snapToRoads(rawLivePoints[deviceId].slice()).then(function(snapped){
+        var filtered=filterStationaryClusters(rawLivePoints[deviceId].slice());
+        snapToRoads(filtered).then(function(snapped){
           if(snapped&&snapped.length>0&&liveTrails[deviceId]){
             liveTrailPoints[deviceId]=snapped;
             liveTrails[deviceId].setLatLngs(snapped);
@@ -706,7 +739,10 @@ function loadLiveTrail(deviceId){
       });
       if(!pts.length) return;
 
-      // Store raw points for future re-snapping
+      // Filter out GPS drift clusters before snapping
+      pts=filterStationaryClusters(pts);
+
+      // Store filtered points for future re-snapping
       rawLivePoints[deviceId]=pts.slice();
 
       // Snap to roads via OSRM
@@ -834,10 +870,11 @@ function loadHistory(){
 
       var rawCoords=historyPoints.map(function(p){return[p.latitude,p.longitude];});
 
-      // Snap to roads via OSRM instead of just simplifying
-      document.getElementById('historyInfo').textContent='Snapping '+rawCoords.length+' points to roads...';
-      var coords=rawCoords;
-      try{ coords=await snapToRoads(rawCoords); }catch(e){ console.error('History snap failed:',e); }
+      // Filter GPS drift then snap to roads
+      var filteredCoords=filterStationaryClusters(rawCoords);
+      document.getElementById('historyInfo').textContent='Snapping '+filteredCoords.length+' points to roads ('+rawCoords.length+' raw)...';
+      var coords=filteredCoords;
+      try{ coords=await snapToRoads(filteredCoords); }catch(e){ console.error('History snap failed:',e); }
 
       var polyline=L.polyline(coords,{color:'#f5c518',weight:3,opacity:0.8,dashArray:'8 6'}).addTo(map);
       historyLayers.push(polyline);
