@@ -68,12 +68,13 @@
   .device-status.offline{background:var(--red-dim);color:var(--red)}
   .device-meta{display:flex;flex-direction:column;gap:4px}
   .device-meta span{font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
-  .device-actions{position:absolute;top:8px;right:10px;display:flex;gap:4px;opacity:0;transition:opacity 0.2s}
-  .device-card:hover .device-actions{opacity:1}
-  .device-action-btn{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace}
+  .device-actions{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+  .device-action-btn{background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);font-size:10px;cursor:pointer;padding:3px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;flex:1;text-align:center}
   .device-action-btn:hover{background:var(--bg-card-hover)}
-  .device-action-btn.danger:hover{color:var(--red)}
-  .device-action-btn.warn:hover{color:var(--yellow)}
+  .device-action-btn.danger{color:var(--red-dim);border-color:var(--red-dim)}
+  .device-action-btn.danger:hover{color:var(--red);border-color:var(--red);background:var(--red-dim)}
+  .device-action-btn.warn{color:var(--yellow-dim);border-color:var(--yellow-dim)}
+  .device-action-btn.warn:hover{color:var(--yellow);border-color:var(--yellow);background:var(--yellow-dim)}
 
   /* History */
   .history-section{flex:1;overflow-y:auto}
@@ -573,10 +574,6 @@ function renderDeviceList(){
     var ls=d.last_seen ? timeAgo(new Date(d.last_seen)) : 'Never';
     var ac=selectedDevice===d.device_id;
     return '<div class="device-card '+(ac?'active':'')+'\" onclick="selectDevice(\''+d.device_id+'\')">'
-      +'<div class="device-actions">'
-      +'<button class="device-action-btn warn" onclick="event.stopPropagation();clearDeviceData(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Clear location data">Clear</button>'
-      +'<button class="device-action-btn danger" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')" title="Delete device">&#10005;</button>'
-      +'</div>'
       +'<div class="device-card-header"><span class="device-name">'+esc(d.device_name)+'</span>'
       +'<span class="device-status '+(on?'online':'offline')+'">'+(on?'ONLINE':'OFFLINE')+'</span></div>'
       +'<div class="device-meta">'
@@ -584,6 +581,10 @@ function renderDeviceList(){
       +'<span>&#128241; '+esc(d.phone_number||'\u2014')+'</span>'
       +'<span>&#128336; '+ls+'</span>'
       +(d.battery_level!=null?'<span>&#128267; '+d.battery_level+'%</span>':'')
+      +'</div>'
+      +'<div class="device-actions">'
+      +'<button class="device-action-btn warn" onclick="event.stopPropagation();clearDeviceData(\''+d.device_id+'\',\''+esc(d.device_name)+'\')">Clear Data</button>'
+      +'<button class="device-action-btn danger" onclick="event.stopPropagation();deleteDevice(\''+d.device_id+'\',\''+esc(d.device_name)+'\')">Delete</button>'
       +'</div></div>';
   }).join('');
 }
