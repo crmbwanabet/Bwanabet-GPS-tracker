@@ -447,6 +447,60 @@ function setConn(t,c){
 }
 
 // ============================================================
+// DIRECTION ARROWS
+// ============================================================
+var trailArrows = {}; // deviceId -> [L.marker, ...]
+var ARROW_INTERVAL = 5; // Place arrow every N points
+
+function addDirectionArrows(points, deviceId){
+  // Remove old arrows for this device
+  clearArrows(deviceId);
+  if(!points||points.length<ARROW_INTERVAL+1) return;
+
+  trailArrows[deviceId]=[];
+  for(var i=ARROW_INTERVAL;i<points.length;i+=ARROW_INTERVAL){
+    var prev=points[i-1];
+    var cur=points[i];
+    var angle=Math.atan2(cur[1]-prev[1],cur[0]-prev[0])*180/Math.PI;
+    // atan2 gives angle from east; rotate so 0=north: bearing = 90 - angle
+    var bearing=90-angle;
+    var icon=L.divIcon({
+      className:'',
+      html:'<div style="font-size:14px;color:#000;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
+      iconSize:[14,14],
+      iconAnchor:[7,7]
+    });
+    var m=L.marker(cur,{icon:icon,interactive:false}).addTo(map);
+    trailArrows[deviceId].push(m);
+  }
+}
+
+function addHistoryArrows(points, layerArray){
+  if(!points||points.length<ARROW_INTERVAL+1) return;
+  for(var i=ARROW_INTERVAL;i<points.length;i+=ARROW_INTERVAL){
+    var prev=points[i-1];
+    var cur=points[i];
+    var angle=Math.atan2(cur[1]-prev[1],cur[0]-prev[0])*180/Math.PI;
+    var bearing=90-angle;
+    var icon=L.divIcon({
+      className:'',
+      html:'<div style="font-size:14px;color:#000;transform:rotate('+bearing+'deg);text-shadow:0 0 3px rgba(0,0,0,0.6);line-height:1;pointer-events:none;">\u25B2</div>',
+      iconSize:[14,14],
+      iconAnchor:[7,7]
+    });
+    var m=L.marker(cur,{icon:icon,interactive:false}).addTo(map);
+    layerArray.push(m);
+  }
+}
+
+function clearArrows(deviceId){
+  if(trailArrows[deviceId]){
+    trailArrows[deviceId].forEach(function(m){map.removeLayer(m);});
+    delete trailArrows[deviceId];
+  }
+}
+
+// ============================================================
 // ROAD SNAPPING (OSRM Map Matching)
 // ============================================================
 async function snapToRoads(rawPoints){
@@ -594,6 +648,7 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
             liveTrailPoints[deviceId]=snapped;
             liveTrails[deviceId].setLatLngs(snapped);
             if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(snapped);
+            addDirectionArrows(snapped,deviceId);
           }
         }).catch(function(e){console.error('Live snap error:',e);});
       }
@@ -664,6 +719,7 @@ function loadLiveTrail(deviceId){
       liveTrailPoints[deviceId]=snapped;
       window._trailShadows[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
       liveTrails[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
+      addDirectionArrows(snapped,deviceId);
     }).catch(function(e){ console.error('loadLiveTrail error:',e); });
 }
 
@@ -677,6 +733,7 @@ function deleteDevice(deviceId, deviceName){
     if(markers[deviceId]){ map.removeLayer(markers[deviceId]); delete markers[deviceId]; }
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(window._trailShadows && window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
+    clearArrows(deviceId);
     if(selectedDevice===deviceId) selectedDevice=null;
     loadDevices();
   }).catch(function(e){ alert('Error deleting: '+(e.message||e)); });
@@ -692,6 +749,7 @@ function clearDeviceData(deviceId, deviceName){
     // Remove trail from map
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(window._trailShadows&&window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
+    clearArrows(deviceId);
     delete liveTrailPoints[deviceId];
     delete rawLivePoints[deviceId];
     alert('Location data cleared for "'+deviceName+'"');
@@ -733,10 +791,11 @@ function resetTimeFilter(){
 }
 
 function reloadAllTrails(){
-  // Clear all live trails from map
+  // Clear all live trails and arrows from map
   Object.keys(liveTrails).forEach(function(id){
     if(liveTrails[id]) map.removeLayer(liveTrails[id]);
     if(window._trailShadows&&window._trailShadows[id]) map.removeLayer(window._trailShadows[id]);
+    clearArrows(id);
   });
   liveTrails={}; liveTrailPoints={}; rawLivePoints={};
   if(!window._trailShadows) window._trailShadows={}; else window._trailShadows={};
@@ -781,6 +840,7 @@ function loadHistory(){
 
       var polyline=L.polyline(coords,{color:'#f5c518',weight:3,opacity:0.8,dashArray:'8 6'}).addTo(map);
       historyLayers.push(polyline);
+      addHistoryArrows(coords,historyLayers);
 
       var s=L.circleMarker(rawCoords[0],{radius:8,color:'#22c55e',fillColor:'#22c55e',fillOpacity:1}).addTo(map)
         .bindPopup('Start: '+new Date(historyPoints[0].recorded_at).toLocaleTimeString());
