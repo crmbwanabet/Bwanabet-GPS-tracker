@@ -265,6 +265,10 @@ var OFFLINE_THRESHOLD_MS = 600000; // 10 minutes — must match Supabase mark_de
 var LIVE_TRAIL_MAX = 2000; // Keep up to 2000 points per live trail
 var ACCURACY_THRESHOLD = 50; // Ignore points with accuracy worse than 50m for trail drawing
 var autoFollowDevice = null; // device_id to auto-pan to on new location
+var rawLivePoints = {}; // raw unsnapped points per device (for re-snapping)
+var snapDebounceTimers = {}; // debounce timers for live trail re-snapping
+var SNAP_DEBOUNCE_MS = 30000; // re-snap live trail every 30s
+var OSRM_CHUNK_SIZE = 100; // max coordinates per OSRM request
 
 var _escDiv = document.createElement('div');
 function esc(s){ _escDiv.textContent=s; return _escDiv.innerHTML; }
@@ -417,6 +421,43 @@ function setConn(t,c){
 }
 
 // ============================================================
+// ROAD SNAPPING (OSRM Map Matching)
+// ============================================================
+async function snapToRoads(rawPoints){
+  // rawPoints: array of [lat, lng]
+  // Returns: array of [lat, lng] snapped to roads, or raw points on failure
+  if(!rawPoints||rawPoints.length<2) return rawPoints||[];
+
+  var results=[];
+  for(var i=0;i<rawPoints.length;i+=OSRM_CHUNK_SIZE){
+    var chunk=rawPoints.slice(i,Math.min(i+OSRM_CHUNK_SIZE,rawPoints.length));
+    if(chunk.length<2){
+      chunk.forEach(function(p){results.push(p);});
+      break;
+    }
+    var coords=chunk.map(function(p){return p[1]+','+p[0];}).join(';');
+    var radiuses=chunk.map(function(){return'25';}).join(';');
+    try{
+      var resp=await fetch('https://router.project-osrm.org/match/v1/driving/'+coords+'?overview=full&geometries=geojson&radiuses='+radiuses);
+      var data=await resp.json();
+      if(data.code==='Ok'&&data.matchings&&data.matchings.length>0){
+        data.matchings.forEach(function(m){
+          m.geometry.coordinates.forEach(function(c){
+            results.push([c[1],c[0]]);
+          });
+        });
+      } else {
+        chunk.forEach(function(p){results.push(p);});
+      }
+    }catch(e){
+      console.error('OSRM snap error:',e);
+      chunk.forEach(function(p){results.push(p);});
+    }
+  }
+  return results.length>0?results:rawPoints;
+}
+
+// ============================================================
 // LOAD DEVICES
 // ============================================================
 function loadDevices(){
@@ -493,21 +534,42 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
   // Skip inaccurate points to keep trail clean
   if(accuracy && accuracy > ACCURACY_THRESHOLD) return;
 
+  if(!rawLivePoints[deviceId]) rawLivePoints[deviceId]=[];
+  rawLivePoints[deviceId].push([lat,lng]);
+  if(rawLivePoints[deviceId].length>LIVE_TRAIL_MAX){
+    rawLivePoints[deviceId].splice(0,rawLivePoints[deviceId].length-LIVE_TRAIL_MAX);
+  }
+
   if(!liveTrails[deviceId]){
-    // Shadow line for glow effect
     if(!window._trailShadows) window._trailShadows={};
     window._trailShadows[deviceId]=L.polyline([],{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
     liveTrails[deviceId]=L.polyline([],{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
     liveTrailPoints[deviceId]=[];
   }
-  var trail=liveTrails[deviceId];
-  var pts=liveTrailPoints[deviceId];
-  pts.push([lat,lng]);
-  if(pts.length>LIVE_TRAIL_MAX){
-    pts.splice(0, pts.length - LIVE_TRAIL_MAX);
+
+  // Show raw point immediately (will be re-snapped periodically)
+  liveTrailPoints[deviceId].push([lat,lng]);
+  if(liveTrailPoints[deviceId].length>LIVE_TRAIL_MAX){
+    liveTrailPoints[deviceId].splice(0,liveTrailPoints[deviceId].length-LIVE_TRAIL_MAX);
   }
-  trail.setLatLngs(pts);
-  if(window._trailShadows && window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(pts);
+  liveTrails[deviceId].setLatLngs(liveTrailPoints[deviceId]);
+  if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(liveTrailPoints[deviceId]);
+
+  // Debounced road snap — re-snap entire trail every 30s
+  if(!snapDebounceTimers[deviceId]){
+    snapDebounceTimers[deviceId]=setTimeout(function(){
+      snapDebounceTimers[deviceId]=null;
+      if(rawLivePoints[deviceId]&&rawLivePoints[deviceId].length>=5){
+        snapToRoads(rawLivePoints[deviceId].slice()).then(function(snapped){
+          if(snapped&&snapped.length>0&&liveTrails[deviceId]){
+            liveTrailPoints[deviceId]=snapped;
+            liveTrails[deviceId].setLatLngs(snapped);
+            if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(snapped);
+          }
+        }).catch(function(e){console.error('Live snap error:',e);});
+      }
+    },SNAP_DEBOUNCE_MS);
+  }
 
   // Auto-follow selected device
   if(autoFollowDevice===deviceId && map){
@@ -531,7 +593,7 @@ function selectDevice(id){
   }
 }
 
-// Load last 18 hours of trail from DB for a device (persistent across refresh)
+// Load last 18 hours of trail from DB for a device, snap to roads
 function loadLiveTrail(deviceId){
   var since=new Date(Date.now() - 18*60*60*1000).toISOString();
   sb.from('locations').select('latitude,longitude,accuracy,recorded_at')
@@ -539,7 +601,7 @@ function loadLiveTrail(deviceId){
     .gte('recorded_at',since)
     .order('recorded_at',{ascending:true})
     .limit(10000)
-    .then(function(res){
+    .then(async function(res){
       if(res.error||!res.data||!res.data.length) return;
 
       // Filter to accurate GPS points only
@@ -551,13 +613,20 @@ function loadLiveTrail(deviceId){
       });
       if(!pts.length) return;
 
-      // Replace live trail with full 18hr data
+      // Store raw points for future re-snapping
+      rawLivePoints[deviceId]=pts.slice();
+
+      // Snap to roads via OSRM
+      var snapped=pts;
+      try{ snapped=await snapToRoads(pts); }catch(e){ console.error('Snap failed, using raw:',e); }
+
+      // Replace live trail with snapped data
       if(liveTrails[deviceId]) map.removeLayer(liveTrails[deviceId]);
       if(window._trailShadows && window._trailShadows[deviceId]) map.removeLayer(window._trailShadows[deviceId]);
       if(!window._trailShadows) window._trailShadows={};
-      liveTrailPoints[deviceId]=pts;
-      window._trailShadows[deviceId]=L.polyline(pts,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
-      liveTrails[deviceId]=L.polyline(pts,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
+      liveTrailPoints[deviceId]=snapped;
+      window._trailShadows[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
+      liveTrails[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
     }).catch(function(e){ console.error('loadLiveTrail error:',e); });
 }
 
@@ -590,7 +659,7 @@ function loadHistory(){
   sb.from('locations').select('*').eq('device_id',selectedDevice)
     .gte('recorded_at',date+'T00:00:00').lte('recorded_at',date+'T23:59:59')
     .order('recorded_at',{ascending:true}).limit(10000)
-    .then(function(res){
+    .then(async function(res){
       if(res.error) throw res.error;
       clearHistory();
       historyPoints=res.data||[];
@@ -600,8 +669,11 @@ function loadHistory(){
       }
 
       var rawCoords=historyPoints.map(function(p){return[p.latitude,p.longitude];});
-      var coords=rawCoords.length>100 ? simplifyPath(rawCoords,0.00003) : rawCoords;
-      var simplified=rawCoords.length-coords.length;
+
+      // Snap to roads via OSRM instead of just simplifying
+      document.getElementById('historyInfo').textContent='Snapping '+rawCoords.length+' points to roads...';
+      var coords=rawCoords;
+      try{ coords=await snapToRoads(rawCoords); }catch(e){ console.error('History snap failed:',e); }
 
       var polyline=L.polyline(coords,{color:'#f5c518',weight:3,opacity:0.8,dashArray:'8 6'}).addTo(map);
       historyLayers.push(polyline);
@@ -618,7 +690,7 @@ function loadHistory(){
       historyLayers.push(playbackMarker);
 
       map.fitBounds(polyline.getBounds(),{padding:[50,50]});
-      document.getElementById('historyInfo').textContent=historyPoints.length+' pts ('+coords.length+' rendered, '+simplified+' simplified)';
+      document.getElementById('historyInfo').textContent=historyPoints.length+' raw pts \u2192 '+coords.length+' road-snapped pts';
       document.getElementById('clearHistoryBtn').disabled=false;
       document.getElementById('exportBtn').disabled=false;
       document.getElementById('playbackBar').classList.add('visible');

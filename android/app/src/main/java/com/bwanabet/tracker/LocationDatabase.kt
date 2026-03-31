@@ -29,7 +29,7 @@ class LocationDatabase private constructor(context: Context) : SQLiteOpenHelper(
         private const val DB_NAME = "tracker.db"
         private const val DB_VERSION = 1
         private const val TABLE = "pending_locations"
-        private const val MAX_PENDING = 5000
+        private const val MAX_PENDING = 15000
 
         @Volatile
         private var instance: LocationDatabase? = null

@@ -16,13 +16,13 @@ class TrackerApp : Application() {
         const val DASHBOARD_KEY = "bwanabet2026!"
 
         // ---- Location Intervals ----
-        const val MOVING_INTERVAL_MS = 5000L        // 5s when moving (smoother trail)
+        const val MOVING_INTERVAL_MS = 1000L        // 1s when moving (high-density trail)
         const val STATIONARY_INTERVAL_MS = 30000L   // 30s when still
-        const val FASTEST_INTERVAL_MS = 2000L       // 2s floor for GPS updates
+        const val FASTEST_INTERVAL_MS = 500L        // 500ms floor for GPS updates
 
         // ---- Sync Settings ----
-        const val SYNC_TIMER_MS = 60000L            // Sync every 1 min
-        const val SYNC_BATCH_SIZE = 50              // Points per upload
+        const val SYNC_TIMER_MS = 15000L            // Sync every 15s (handles 1s density)
+        const val SYNC_BATCH_SIZE = 100             // Points per upload
         const val MAX_RETRY_DELAY_MS = 300000L      // 5 min max backoff
         const val INITIAL_RETRY_DELAY_MS = 5000L    // 5 sec initial backoff
 
@@ -32,10 +32,6 @@ class TrackerApp : Application() {
 
         // ---- Point Filtering ----
         const val COLLINEAR_TOLERANCE_M = 2.0       // Skip mid-points within 2m of line
-
-        // ---- Spike Rejection ----
-        const val MAX_SPEED_MS = 33.0               // 120 km/h — reject jumps faster than this
-        const val MIN_SPIKE_DISTANCE_M = 50.0       // Only check speed if jump > 50m
     }
 
     override fun onCreate() {
