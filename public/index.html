@@ -285,7 +285,7 @@ var map;
 var rtReconnectDelay = 5000;
 var OFFLINE_THRESHOLD_MS = 600000; // 10 minutes — must match Supabase mark_devices_offline cron
 var LIVE_TRAIL_MAX = 2000; // Keep up to 2000 points per live trail
-var ACCURACY_THRESHOLD = 50; // Ignore points with accuracy worse than 50m for trail drawing
+var ACCURACY_THRESHOLD = 30; // Ignore points with accuracy worse than 30m for trail drawing
 var autoFollowDevice = null; // device_id to auto-pan to on new location
 var rawLivePoints = {}; // raw unsnapped points per device (for re-snapping)
 var snapDebounceTimers = {}; // debounce timers for live trail re-snapping
@@ -698,31 +698,13 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
     liveTrailPoints[deviceId]=[];
   }
 
-  // Show raw point immediately (will be re-snapped periodically)
+  // Add point directly to trail (no road snapping)
   liveTrailPoints[deviceId].push([lat,lng]);
   if(liveTrailPoints[deviceId].length>LIVE_TRAIL_MAX){
     liveTrailPoints[deviceId].splice(0,liveTrailPoints[deviceId].length-LIVE_TRAIL_MAX);
   }
   liveTrails[deviceId].setLatLngs(liveTrailPoints[deviceId]);
   if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(liveTrailPoints[deviceId]);
-
-  // Debounced road snap — re-snap entire trail every 30s
-  if(!snapDebounceTimers[deviceId]){
-    snapDebounceTimers[deviceId]=setTimeout(function(){
-      snapDebounceTimers[deviceId]=null;
-      if(rawLivePoints[deviceId]&&rawLivePoints[deviceId].length>=5){
-        var filtered=filterStationaryClusters(rawLivePoints[deviceId].slice());
-        snapToRoads(filtered).then(function(snapped){
-          if(snapped&&snapped.length>0&&liveTrails[deviceId]){
-            liveTrailPoints[deviceId]=snapped;
-            liveTrails[deviceId].setLatLngs(snapped);
-            if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(snapped);
-            addDirectionArrows(snapped,deviceId);
-          }
-        }).catch(function(e){console.error('Live snap error:',e);});
-      }
-    },SNAP_DEBOUNCE_MS);
-  }
 
   // Auto-follow selected device
   if(autoFollowDevice===deviceId && map){
@@ -777,21 +759,20 @@ function loadLiveTrail(deviceId){
       // Filter out GPS drift clusters before snapping
       pts=filterStationaryClusters(pts);
 
-      // Store filtered points for future re-snapping
+      // Store filtered points
       rawLivePoints[deviceId]=pts.slice();
 
-      // Snap to roads via OSRM
-      var snapped=pts;
-      try{ snapped=await snapToRoads(pts); }catch(e){ console.error('Snap failed, using raw:',e); }
+      // Apply spike filter to clean up jumps
+      pts=filterSpikes(pts);
 
-      // Replace live trail with snapped data
+      // Show actual GPS trail (no road snapping — OSRM creates fake loops)
       if(liveTrails[deviceId]) map.removeLayer(liveTrails[deviceId]);
       if(window._trailShadows && window._trailShadows[deviceId]) map.removeLayer(window._trailShadows[deviceId]);
       if(!window._trailShadows) window._trailShadows={};
-      liveTrailPoints[deviceId]=snapped;
-      window._trailShadows[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
-      liveTrails[deviceId]=L.polyline(snapped,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
-      addDirectionArrows(snapped,deviceId);
+      liveTrailPoints[deviceId]=pts;
+      window._trailShadows[deviceId]=L.polyline(pts,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
+      liveTrails[deviceId]=L.polyline(pts,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
+      addDirectionArrows(pts,deviceId);
     }).catch(function(e){ console.error('loadLiveTrail error:',e); });
 }
 
