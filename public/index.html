@@ -280,6 +280,7 @@
 var SUPABASE_URL='', SUPABASE_KEY='', dashboardKey='';
 var sb=null, realtimeChannel=null;
 var devices=[], selectedDevice=null, markers={}, liveTrails={}, liveTrailPoints={};
+var livePointDots={}; // deviceId -> L.layerGroup of red circle markers
 var historyLayers=[], historyPoints=[], playbackIndex=0, playbackInterval=null, playbackMarker=null;
 var map;
 var rtReconnectDelay = 5000;
@@ -706,6 +707,10 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
   liveTrails[deviceId].setLatLngs(liveTrailPoints[deviceId]);
   if(window._trailShadows&&window._trailShadows[deviceId]) window._trailShadows[deviceId].setLatLngs(liveTrailPoints[deviceId]);
 
+  // Red dot at this GPS fix
+  if(!livePointDots[deviceId]){ livePointDots[deviceId]=L.layerGroup().addTo(map); }
+  L.circleMarker([lat,lng],{radius:3,color:'#ef4444',fillColor:'#ef4444',fillOpacity:0.9,weight:0}).addTo(livePointDots[deviceId]);
+
   // Auto-follow selected device
   if(autoFollowDevice===deviceId && map){
     map.panTo([lat,lng],{animate:true,duration:0.5});
@@ -768,10 +773,17 @@ function loadLiveTrail(deviceId){
       // Show actual GPS trail (no road snapping — OSRM creates fake loops)
       if(liveTrails[deviceId]) map.removeLayer(liveTrails[deviceId]);
       if(window._trailShadows && window._trailShadows[deviceId]) map.removeLayer(window._trailShadows[deviceId]);
+      if(livePointDots[deviceId]) map.removeLayer(livePointDots[deviceId]);
       if(!window._trailShadows) window._trailShadows={};
       liveTrailPoints[deviceId]=pts;
       window._trailShadows[deviceId]=L.polyline(pts,{color:'#f5c518',weight:8,opacity:0.2}).addTo(map);
       liveTrails[deviceId]=L.polyline(pts,{color:'#f5c518',weight:3,opacity:0.9,lineJoin:'round',lineCap:'round'}).addTo(map);
+      // Red dots at each GPS fix
+      livePointDots[deviceId]=L.layerGroup();
+      pts.forEach(function(p){
+        L.circleMarker(p,{radius:3,color:'#ef4444',fillColor:'#ef4444',fillOpacity:0.9,weight:0}).addTo(livePointDots[deviceId]);
+      });
+      livePointDots[deviceId].addTo(map);
       addDirectionArrows(pts,deviceId);
     }).catch(function(e){ console.error('loadLiveTrail error:',e); });
 }
@@ -786,6 +798,7 @@ function deleteDevice(deviceId, deviceName){
     if(markers[deviceId]){ map.removeLayer(markers[deviceId]); delete markers[deviceId]; }
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(window._trailShadows && window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
+    if(livePointDots[deviceId]){ map.removeLayer(livePointDots[deviceId]); delete livePointDots[deviceId]; }
     clearArrows(deviceId);
     if(selectedDevice===deviceId) selectedDevice=null;
     loadDevices();
@@ -807,6 +820,7 @@ function clearDeviceData(deviceId, deviceName){
     // Remove trail from map
     if(liveTrails[deviceId]){ map.removeLayer(liveTrails[deviceId]); delete liveTrails[deviceId]; }
     if(window._trailShadows&&window._trailShadows[deviceId]){ map.removeLayer(window._trailShadows[deviceId]); delete window._trailShadows[deviceId]; }
+    if(livePointDots[deviceId]){ map.removeLayer(livePointDots[deviceId]); delete livePointDots[deviceId]; }
     clearArrows(deviceId);
     delete liveTrailPoints[deviceId];
     delete rawLivePoints[deviceId];
