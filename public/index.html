@@ -292,7 +292,7 @@ var rawLivePoints = {}; // raw unsnapped points per device (for re-snapping)
 var snapDebounceTimers = {}; // debounce timers for live trail re-snapping
 var SNAP_DEBOUNCE_MS = 30000; // re-snap live trail every 30s
 var OSRM_CHUNK_SIZE = 100; // max coordinates per OSRM request
-var STATIONARY_RADIUS_M = 25; // GPS drift radius — points within this are collapsed
+var STATIONARY_RADIUS_M = 10; // GPS drift radius — aligned with Android STATIONARY_THRESHOLD_M
 
 var _escDiv = document.createElement('div');
 function esc(s){ _escDiv.textContent=s; return _escDiv.innerHTML; }

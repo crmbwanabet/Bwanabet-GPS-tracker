@@ -191,7 +191,7 @@ class LocationService : Service() {
             currentIntervalMs
         ).apply {
             setMinUpdateIntervalMillis(TrackerApp.FASTEST_INTERVAL_MS)
-            setWaitForAccurateLocation(false)
+            setWaitForAccurateLocation(true)
         }.build()
 
         try {
@@ -204,6 +204,12 @@ class LocationService : Service() {
 
     private fun processLocation(location: Location) {
         Log.d(TAG, "GPS fix: ${location.latitude}, ${location.longitude} acc=${location.accuracy}")
+
+        // --- Accuracy gate: reject poor fixes before anything else ---
+        if (location.accuracy > TrackerApp.ACCURACY_THRESHOLD_M) {
+            Log.d(TAG, "Rejected: accuracy ${location.accuracy.toInt()}m > ${TrackerApp.ACCURACY_THRESHOLD_M.toInt()}m")
+            return
+        }
 
         // --- Consensus filter: buffer fixes, only accept when 3 agree ---
         recentFixes.addLast(location)
@@ -264,6 +270,9 @@ class LocationService : Service() {
                     TrackerApp.COLLINEAR_TOLERANCE_M
                 )
             ) {
+                // Update the last saved endpoint so trail stays current
+                lastSavedLat = location.latitude
+                lastSavedLng = location.longitude
                 lastLocation = location
                 return
             }
@@ -284,7 +293,7 @@ class LocationService : Service() {
             put("bearing", location.bearing)
             put("altitude", location.altitude)
             put("battery_level", getBatteryLevel())
-            put("network_type", if (location.accuracy < 20) "gps" else "network")
+            put("network_type", location.provider ?: if (location.accuracy < 20) "gps" else "network")
             put("recorded_at", dateFormat.format(Date(location.time)))
         }
 
@@ -315,7 +324,7 @@ class LocationService : Service() {
             currentIntervalMs
         ).apply {
             setMinUpdateIntervalMillis(TrackerApp.FASTEST_INTERVAL_MS)
-            setWaitForAccurateLocation(false)
+            setWaitForAccurateLocation(true)
         }.build()
 
         try {

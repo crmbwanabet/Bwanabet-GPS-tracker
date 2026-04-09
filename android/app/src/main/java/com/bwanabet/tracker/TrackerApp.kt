@@ -31,9 +31,10 @@ class TrackerApp : Application() {
         const val STATIONARY_COUNT_TRIGGER = 3      // 3 readings to confirm
 
         // ---- Point Filtering ----
+        const val ACCURACY_THRESHOLD_M = 30.0f      // Reject fixes with accuracy worse than 30m
         const val COLLINEAR_TOLERANCE_M = 2.0       // Skip mid-points within 2m of line
         const val CONSENSUS_COUNT = 3               // Need 3 fixes agreeing to confirm position
-        const val CONSENSUS_RADIUS_M = 25.0         // Fixes must be within 25m of each other
+        const val CONSENSUS_RADIUS_M = 10.0         // Fixes must be within 10m of each other
     }
 
     override fun onCreate() {
