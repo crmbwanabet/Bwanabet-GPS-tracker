@@ -285,8 +285,8 @@ var historyLayers=[], historyPoints=[], playbackIndex=0, playbackInterval=null, 
 var map;
 var rtReconnectDelay = 5000;
 var OFFLINE_THRESHOLD_MS = 600000; // 10 minutes — must match Supabase mark_devices_offline cron
-var LIVE_TRAIL_MAX = 2000; // Keep up to 2000 points per live trail
-var ACCURACY_THRESHOLD = 30; // Ignore points with accuracy worse than 30m for trail drawing
+var LIVE_TRAIL_MAX = 10000; // Keep up to 10000 points per live trail
+var ACCURACY_THRESHOLD = 50; // Ignore points with accuracy worse than 50m for trail drawing
 var autoFollowDevice = null; // device_id to auto-pan to on new location
 var rawLivePoints = {}; // raw unsnapped points per device (for re-snapping)
 var snapDebounceTimers = {}; // debounce timers for live trail re-snapping
@@ -516,7 +516,7 @@ function clearArrows(deviceId){
 // ============================================================
 // 1) Remove spikes: if a point is far from BOTH its neighbors, it's a spike
 // 2) Collapse stationary clusters within STATIONARY_RADIUS_M
-var SPIKE_THRESHOLD_M = 40; // Points jumping >40m from both neighbors = spike
+var SPIKE_THRESHOLD_M = 100; // Points jumping >100m from both neighbors = spike
 
 function filterSpikes(points){
   if(!points||points.length<3) return points||[];
@@ -748,7 +748,7 @@ function loadLiveTrail(deviceId){
     .gte('recorded_at',since);
   if(until) q=q.lte('recorded_at',until);
   q.order('recorded_at',{ascending:true})
-    .limit(2000)
+    .limit(10000)
     .then(async function(res){
       if(res.error||!res.data||!res.data.length) return;
 
