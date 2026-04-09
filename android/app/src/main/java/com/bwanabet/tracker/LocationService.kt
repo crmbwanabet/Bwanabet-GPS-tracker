@@ -65,6 +65,7 @@ class LocationService : Service() {
     private var savedPointCount = 0
 
     private var syncTimerRunnable: Runnable? = null
+    private var heartbeatRunnable: Runnable? = null
     private val recentFixes = ArrayDeque<Location>()
 
     companion object {
@@ -109,6 +110,7 @@ class LocationService : Service() {
             Log.d(TAG, "Sync timer started")
         }
 
+        startHeartbeat()
         scheduleSyncAttempt()
         return START_STICKY
     }
@@ -124,6 +126,7 @@ class LocationService : Service() {
             Log.e(TAG, "Error removing updates", e)
         }
         stopSyncTimer()
+        stopHeartbeat()
 
         if (isNetworkAvailable()) {
             val latch = CountDownLatch(1)
@@ -339,6 +342,27 @@ class LocationService : Service() {
         if (abLen < 1.0) return true
         val dist = Math.abs((by - ay) * cx - (bx - ax) * cy + bx * ay - by * ax) / abLen
         return dist < toleranceM
+    }
+
+    private fun startHeartbeat() {
+        heartbeatRunnable = object : Runnable {
+            override fun run() {
+                getSharedPreferences("tracker", MODE_PRIVATE).edit()
+                    .putLong("service_heartbeat", System.currentTimeMillis())
+                    .apply()
+                handler.postDelayed(this, 30000)
+            }
+        }
+        // Write first heartbeat immediately
+        getSharedPreferences("tracker", MODE_PRIVATE).edit()
+            .putLong("service_heartbeat", System.currentTimeMillis())
+            .apply()
+        handler.postDelayed(heartbeatRunnable!!, 30000)
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatRunnable?.let { handler.removeCallbacks(it) }
+        heartbeatRunnable = null
     }
 
     private fun startSyncTimer() {

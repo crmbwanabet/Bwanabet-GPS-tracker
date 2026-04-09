@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -74,6 +75,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Heartbeat check runs inside isTrackingEnabled() — auto-restarts zombie service
+        isTrackingEnabled()
         updateUI()
         refreshHandler.postDelayed(refreshRunnable, 5000)
     }
@@ -236,17 +239,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Check if tracking is supposed to be active.
-     * The service sets this to false in onDestroy, so if the OS killed
-     * the service, this will correctly return false after restart.
-     *
-     * Note: START_STICKY means the OS will restart the service, which
-     * sets the flag back to true. But between the kill and restart,
-     * the UI correctly shows "Stopped".
+     * Check if tracking is actually active by verifying both the flag
+     * and the service heartbeat. If the flag says enabled but the
+     * heartbeat is stale (>60s), the OS force-killed the service
+     * without calling onDestroy — restart it automatically.
      */
     private fun isTrackingEnabled(): Boolean {
-        return getSharedPreferences("tracker", MODE_PRIVATE)
-            .getBoolean("tracking_enabled", false)
+        val prefs = getSharedPreferences("tracker", MODE_PRIVATE)
+        val flagEnabled = prefs.getBoolean("tracking_enabled", false)
+        if (!flagEnabled) return false
+
+        val lastHeartbeat = prefs.getLong("service_heartbeat", 0)
+        val stale = System.currentTimeMillis() - lastHeartbeat > 60000
+
+        if (stale && lastHeartbeat > 0) {
+            Log.w("MainActivity", "Service heartbeat stale — restarting service")
+            startTracking()
+        }
+        return true
     }
 
     // ============================================================

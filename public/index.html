@@ -411,13 +411,22 @@ function initMap(){
 // ============================================================
 // REALTIME
 // ============================================================
+var rtReconnectTimer = null;
+var rtChannelCounter = 0;
+
 function subscribeRealtime(){
-  realtimeChannel=sb.channel('tracker-live')
+  if(rtReconnectTimer){ clearTimeout(rtReconnectTimer); rtReconnectTimer=null; }
+  // Remove old channel cleanly before creating new one
+  if(realtimeChannel){
+    try{ sb.removeChannel(realtimeChannel); }catch(e){}
+    realtimeChannel=null;
+  }
+  rtChannelCounter++;
+  realtimeChannel=sb.channel('tracker-live-'+rtChannelCounter)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'locations'},function(payload){
       var loc=payload.new;
       var dev=devices.find(function(d){return d.device_id===loc.device_id;});
       if(dev){
-        dev.is_online=true;
         dev.last_seen=loc.recorded_at;
         dev.battery_level=loc.battery_level;
         updateSingleMarker(dev,loc);
@@ -433,12 +442,12 @@ function subscribeRealtime(){
         setConn('Live','#22c55e');
         rtReconnectDelay=5000;
       } else if(status==='CLOSED'||status==='CHANNEL_ERROR'){
-        setConn('Reconnecting...','#f5c518');
-        setTimeout(function(){
-          try{ sb.removeChannel(realtimeChannel); }catch(e){}
+        setConn('Connecting...','#f5c518');
+        rtReconnectTimer=setTimeout(function(){
+          rtReconnectTimer=null;
           subscribeRealtime();
         }, rtReconnectDelay);
-        rtReconnectDelay = Math.min(rtReconnectDelay * 2, 60000);
+        rtReconnectDelay = Math.min(rtReconnectDelay * 1.5, 30000);
       }
     });
 }
@@ -623,7 +632,7 @@ function renderDeviceList(){
   }
 
   c.innerHTML=devices.map(function(d){
-    var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
+    var on=d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
     var ls=d.last_seen ? timeAgo(new Date(d.last_seen)) : 'Never';
     var ac=selectedDevice===d.device_id;
     return '<div class="device-card '+(ac?'active':'')+'\" onclick="selectDevice(\''+d.device_id+'\')">'
@@ -650,7 +659,7 @@ function updateMarkers(latest){
 }
 
 function updateSingleMarker(d,loc){
-  var on=d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
+  var on=d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;
   var speedKmh=((loc.speed||0)*3.6).toFixed(1);
   var popup='<strong>'+esc(d.device_name)+'</strong><br>'+esc(d.assigned_to||'')
     +'<br>Speed: '+speedKmh+' km/h'
@@ -717,7 +726,7 @@ function addToLiveTrail(deviceId,lat,lng,accuracy){
 }
 
 function updateStats(){
-  var on=devices.filter(function(d){return d.is_online&&d.last_seen&&(Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;});
+  var on=devices.filter(function(d){return d.last_seen&&(Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS;});
   document.getElementById('onlineCount').textContent=on.length;
 }
 
@@ -1086,7 +1095,7 @@ function toggleFollow(){
 // ============================================================
 function loadAllOnlineTrails(){
   devices.forEach(function(d){
-    if(d.is_online && d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS){
+    if(d.last_seen && (Date.now()-new Date(d.last_seen).getTime())<OFFLINE_THRESHOLD_MS){
       loadLiveTrail(d.device_id);
     }
   });
