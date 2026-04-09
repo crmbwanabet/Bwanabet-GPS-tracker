@@ -431,10 +431,9 @@ function subscribeRealtime(){
         dev.battery_level=loc.battery_level;
         updateSingleMarker(dev,loc);
         addToLiveTrail(loc.device_id,loc.latitude,loc.longitude,loc.accuracy);
-        renderDeviceList();
-        updateStats();
+        throttledRender();
       }
-      loadTodayPointCount();
+      throttledPointCount();
     })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'devices'},function(){ loadDevices(); })
     .subscribe(function(status){
@@ -609,7 +608,7 @@ function loadDevices(){
     devices=res.data||[];
     var ids=devices.map(function(d){return d.device_id;});
     if(ids.length===0){ renderDeviceList(); updateStats(); setConn('Connected','#22c55e'); return; }
-    sb.from('locations').select('*').in('device_id',ids).order('recorded_at',{ascending:false}).limit(ids.length*2).then(function(r2){
+    sb.from('locations').select('device_id,latitude,longitude,accuracy,speed,bearing,battery_level,network_type,recorded_at').in('device_id',ids).order('recorded_at',{ascending:false}).limit(ids.length).then(function(r2){
       var latest={};
       (r2.data||[]).forEach(function(l){ if(!latest[l.device_id]) latest[l.device_id]=l; });
       renderDeviceList(); updateMarkers(latest); updateStats(); setConn('Live','#22c55e');
@@ -622,6 +621,12 @@ function loadDevices(){
 // ============================================================
 // RENDER DEVICE LIST
 // ============================================================
+var _renderTimer=null;
+function throttledRender(){
+  if(_renderTimer) return;
+  _renderTimer=setTimeout(function(){ _renderTimer=null; renderDeviceList(); updateStats(); },3000);
+}
+
 function renderDeviceList(){
   var c=document.getElementById('deviceList');
   document.getElementById('deviceCount').textContent=devices.length;
@@ -756,7 +761,7 @@ function loadLiveTrail(deviceId){
     .gte('recorded_at',since);
   if(until) q=q.lte('recorded_at',until);
   q.order('recorded_at',{ascending:true})
-    .limit(10000)
+    .limit(2000)
     .then(async function(res){
       if(res.error||!res.data||!res.data.length) return;
 
@@ -1104,6 +1109,12 @@ function loadAllOnlineTrails(){
 // ============================================================
 // TODAY'S COUNT
 // ============================================================
+var _pointCountTimer=null;
+function throttledPointCount(){
+  if(_pointCountTimer) return;
+  _pointCountTimer=setTimeout(function(){ _pointCountTimer=null; loadTodayPointCount(); },10000);
+}
+
 function loadTodayPointCount(){
   var today=new Date().toISOString().split('T')[0];
   sb.from('locations').select('id',{count:'exact',head:true}).gte('recorded_at',today+'T00:00:00').then(function(res){
