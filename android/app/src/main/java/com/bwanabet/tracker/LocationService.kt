@@ -191,7 +191,7 @@ class LocationService : Service() {
             currentIntervalMs
         ).apply {
             setMinUpdateIntervalMillis(TrackerApp.FASTEST_INTERVAL_MS)
-            setWaitForAccurateLocation(true)
+            setWaitForAccurateLocation(false)
         }.build()
 
         try {
@@ -324,7 +324,7 @@ class LocationService : Service() {
             currentIntervalMs
         ).apply {
             setMinUpdateIntervalMillis(TrackerApp.FASTEST_INTERVAL_MS)
-            setWaitForAccurateLocation(true)
+            setWaitForAccurateLocation(false)
         }.build()
 
         try {

@@ -11,12 +11,22 @@ android {
         applicationId "com.bwanabet.tracker"
         minSdk 26          // Android 8.0 Oreo
         targetSdk 34       // Android 14
-        versionCode 12
-        versionName "2.1"
+        versionCode 13
+        versionName "2.2"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
     }
 
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
